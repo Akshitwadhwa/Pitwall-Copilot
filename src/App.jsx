@@ -36,9 +36,9 @@ function StepHeader({ step, onBack, title }) {
   </header>
 }
 
-function LiveRadioCard({ team }) {
+function LiveRadioCard({ team, onOpen }) {
   const messages = useMemo(() => [
-    team ? `${team.name} channel is ready. Select a message to begin the radio analysis.` : 'Select a team. The radio channel will adapt to its profile and terminology.',
+    team ? `${team.name} radio online. The channel is tuned to this team's terminology.` : 'Select a team to tune the radio channel to its terminology.',
     'PitWall Copilot listens for signal loss, urgency and missed acknowledgement.',
   ], [team])
   const [messageIndex, setMessageIndex] = useState(0)
@@ -57,7 +57,15 @@ function LiveRadioCard({ team }) {
     return () => window.clearTimeout(timer)
   }, [messageIndex, messages, typedMessage])
 
-  return <aside className="live-radio-card" aria-label="Live team radio example">
+  const openDesk = () => onOpen?.()
+  const handleKeyDown = (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      openDesk()
+    }
+  }
+
+  return <aside className="live-radio-card" aria-label="Live team radio example" role={onOpen ? 'button' : undefined} tabIndex={onOpen ? 0 : undefined} onClick={openDesk} onKeyDown={handleKeyDown}>
     <div className="radio-card-top"><span>LIVE SIGNAL</span><i /><span>{team?.code || 'CH --'}</span></div>
     <div className="radio-team"><span className="radio-number">{team?.code || '01'}</span><div><strong>{team?.name || 'RADIO'}</strong><b>RADIO</b></div></div>
     <div className="mini-wave" aria-hidden="true">{Array.from({ length: 25 }).map((_, index) => <i key={index} style={{ '--h': `${7 + (index % 6) * 4}px`, '--delay': `${index * -.075}s` }} />)}</div>
@@ -131,10 +139,11 @@ function CockpitLink({ team, onBack, onStart }) {
   }, [])
 
   const introOpacity = Math.max(0, 1 - progress * 2.5)
-  const radioOpacity = Math.max(0, Math.min(1, (progress - .56) * 3)) * Math.max(0, 1 - Math.max(0, progress - .70) * 4)
-  const wheelControlOpacity = Math.max(0, Math.min(1, (progress - .76) * 5))
+  // Keep the side radio card out of the transition. It should arrive only once
+  // the wheel is locked, then remain available as the hand-off into the desk.
+  const radioOpacity = Math.max(0, Math.min(1, (progress - .72) * 3.6))
   const wheelStyle = {
-    transform: `translate(calc(-50% + ${pointer.x * 12}px), calc(-50% + ${progress * 120 + pointer.y * 6}px)) scale(${1 - progress * .23}) rotate(${progress * 1.2 + pointer.x * 1.1}deg)`,
+    transform: `translate(calc(-50% + ${pointer.x * 12}px), calc(-50% + ${progress * 95 + pointer.y * 6}px)) scale(${1.02 - progress * .14}) rotate(${progress * 1.2 + pointer.x * 1.1}deg)`,
   }
   const moveWheel = (event) => {
     const rect = event.currentTarget.getBoundingClientRect()
@@ -152,14 +161,7 @@ function CockpitLink({ team, onBack, onStart }) {
       </div>
       <div className="sequence-wheel" style={wheelStyle}><F1Wheel team={team} mode={mode} setMode={setMode} /></div>
       <div className="cockpit-hood" style={{ opacity: Math.min(1, progress * 1.7) }}><span className="hood-light hood-left" /><span className="hood-light hood-right" /><b>COCKPIT LINK</b></div>
-      <div className="engage-copy" style={{ opacity: radioOpacity, transform: `translateY(${(1 - radioOpacity) * 25}px)` }}>
-        <div className="engage-label">WHEEL LOCKED / RADIO ONLINE</div>
-        <h2>Ready to<br /><em>communicate.</em></h2>
-        <p>Send a driver report to the engineer, or compress an engineer instruction for the driver display.</p>
-        <button className="primary-action" onClick={() => onStart(mode)}>START RADIO DESK <ArrowUpRight size={17} /></button>
-      </div>
-      <div className="sequence-radio" style={{ opacity: radioOpacity, transform: `translateX(${(1 - radioOpacity) * 36}px)` }}><LiveRadioCard team={team} /></div>
-      <div className="wheel-controls-ready" style={{ opacity: wheelControlOpacity, pointerEvents: wheelControlOpacity > .5 ? 'auto' : 'none' }}><button onClick={() => setMode('driver')} className={mode === 'driver' ? 'active' : ''}><Mic size={14} /> DRIVER RADIO</button><button onClick={() => setMode('engineer')} className={mode === 'engineer' ? 'active' : ''}><Volume2 size={14} /> ENGINEER RADIO</button></div>
+      <div className="sequence-radio" style={{ opacity: radioOpacity, pointerEvents: radioOpacity > .65 ? 'auto' : 'none', transform: `translateX(${(1 - radioOpacity) * 36}px)` }}><LiveRadioCard team={team} onOpen={() => onStart(mode)} /></div>
       <div className="scroll-marker" style={{ opacity: introOpacity }}>SCROLL <span>↓</span></div>
     </div>
   </section>

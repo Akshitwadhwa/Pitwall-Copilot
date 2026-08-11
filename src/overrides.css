@@ -68,15 +68,15 @@
 }
 
 .sequence-copy h1 { margin: 16px 0 18px; color: #f5fffb; font: 600 clamp(56px, 6.4vw, 96px)/.88 'Space Grotesk', sans-serif; letter-spacing: -.09em; }
-.sequence-copy em, .engage-copy em { color: var(--team); font-style: normal; }
-.sequence-copy p, .engage-copy p { margin: 0; color: #b3c4be; font-size: 14px; line-height: 1.72; }
+.sequence-copy em { color: var(--team); font-style: normal; }
+.sequence-copy p { margin: 0; color: #b3c4be; font-size: 14px; line-height: 1.72; }
 
 .sequence-wheel {
   position: absolute;
   z-index: 2;
   top: 48%;
   left: 50%;
-  width: min(1180px, 116vw);
+  width: min(1080px, 100vw);
   transform-origin: center;
   will-change: transform;
   transition: transform .2s ease-out;
@@ -162,11 +162,10 @@
 .cockpit-hood b { position: absolute; left: 50%; top: 36%; transform: translateX(-50%); color: #83b7a9; font: 10px 'DM Mono', monospace; letter-spacing: .22em; }
 .hood-light { position: absolute; top: 43%; width: 16%; height: 3px; background: var(--team); box-shadow: 0 0 17px var(--team); }.hood-left { left: 15%; }.hood-right { right: 15%; }
 
-.engage-copy { position: absolute; z-index: 4; top: 24vh; left: max(40px, calc((100vw - 1360px) / 2)); width: min(380px, 31vw); pointer-events: auto; }
-.engage-label { margin-bottom: 14px; color: var(--team); font: 10px 'DM Mono', monospace; letter-spacing: .12em; }.engage-copy h2 { margin: 0 0 15px; color: #f5fffb; font: 600 clamp(44px, 5.2vw, 74px)/.88 'Space Grotesk', sans-serif; letter-spacing: -.08em; }
-
-.sequence-radio { position: absolute; z-index: 5; top: 30%; right: max(40px, calc((100vw - 1360px) / 2)); width: 275px; transition: opacity .15s linear, transform .15s linear; }
+.sequence-radio { position: absolute; z-index: 5; top: 28%; right: max(40px, calc((100vw - 1360px) / 2)); width: 275px; transition: opacity .2s linear, transform .2s linear; }
 .sequence-radio .live-radio-card { position: relative; top: auto; left: auto; width: 100%; transform: none; }
+.sequence-radio .live-radio-card[role="button"] { cursor: pointer; transition: border-color .2s, box-shadow .2s, transform .2s; }
+.sequence-radio .live-radio-card[role="button"]:hover { border-color: var(--team); box-shadow: 0 18px 55px rgba(0,0,0,.45), 0 0 24px color-mix(in srgb, var(--team) 22%, transparent); transform: translateY(-3px); }
 .scroll-marker { position: absolute; z-index: 4; bottom: 35px; left: 50%; transform: translateX(-50%); color: #9ab5ac; font: 9px 'DM Mono', monospace; letter-spacing: .2em; }.scroll-marker span { display: block; margin-top: 7px; color: var(--team); text-align: center; font-size: 15px; animation: downPulse 1.4s infinite; }
 
 @keyframes downPulse { 50% { transform: translateY(6px); opacity: .3; } }
@@ -246,14 +245,13 @@
   .live-radio-card { left: auto; right: 18px; }
   .cockpit-topline { width: min(100% - 36px, 620px); top: 98px; }
   .cockpit-topline span:last-child { display: none; }
-  .sequence-copy, .engage-copy { left: 18px; width: min(360px, calc(100% - 36px)); }
+  .sequence-copy { left: 18px; width: min(360px, calc(100% - 36px)); }
   .sequence-copy { top: 19vh; }
-  .sequence-wheel { top: 50%; left: 55%; width: 150vw; }
+  .sequence-wheel { top: 50%; left: 55%; width: 124vw; }
   .wheel-console { width: 40vw; min-height: 86px; padding: 9px; }
   .wheel-control { width: 132px; }
   .wheel-control-left { left: 12%; }
   .wheel-control-right { right: 12%; }
   .wheel-control button { font-size: 7px; }
-  .engage-copy { top: 16vh; }
   .sequence-radio { top: auto; right: 18px; bottom: 62px; width: min(270px, calc(100% - 36px)); }
 }
