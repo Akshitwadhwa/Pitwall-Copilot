@@ -1,30 +1,33 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowUpRight, ChevronRight, CircleDot, Mic, Radio, Send, Sparkles as SparkleIcon, Volume2 } from 'lucide-react'
+import haasCar from './assets/haas-f1.jpeg'
+import audiCar from './assets/audi-f1.jpg'
+import mclarenCar from './assets/mclaren-mcl38.jpg'
 
 const teams = [
   {
-    id: 'mclaren',
-    name: 'McLaren', code: 'MCL', color: '#ff8000', accent: '#8cebdd',
-    image: 'https://images.unsplash.com/photo-1504215680853-026ed2a45def?auto=format&fit=crop&w=1400&q=85',
-    position: 'P3', points: '220', podiums: '3', races: '11',
-    summary: 'A recovery after an uneven opening stretch. A major Miami step put both cars on the Grand Prix podium, before Norris returned to the top step in Hungary.',
-    signal: 'Focus the radio desk on concise strategy confirmation during high-pressure calls.',
+    id: 'haas',
+    name: 'Haas', code: 'HAA', color: '#d71920', accent: '#f4f4f4',
+    image: haasCar,
+    position: 'P7', points: '22', podiums: '0', races: '11',
+    summary: 'A points-focused campaign where clear, concise feedback is essential for extracting the most from each race weekend.',
+    signal: 'Prioritise fast issue classification and reliable driver acknowledgement during high-pressure calls.',
   },
   {
     id: 'audi',
     name: 'Audi', code: 'AUD', color: '#f1192e', accent: '#e7e7e7',
-    image: 'https://images.unsplash.com/photo-1541348263662-e068662d82af?auto=format&fit=crop&w=1400&q=85',
+    image: audiCar,
     position: 'P8', points: '12', podiums: '0', races: '11',
     summary: 'The team is collecting points in its first season under the Audi name, with the focus on extracting reliable feedback and making every radio message actionable.',
     signal: 'Prioritise radio quality checks and precise issue reporting from the driver.',
   },
   {
-    id: 'cadillac',
-    name: 'Cadillac', code: 'CAD', color: '#d6e2de', accent: '#caa15c',
-    image: 'https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1400&q=85',
-    position: 'P11', points: '0', podiums: '0', races: '11',
-    summary: 'A debut-season learning curve. The immediate objective is building a dependable operational rhythm and keeping driver-to-pit communication clear under pressure.',
-    signal: 'Use the radio-health layer to build confidence in every critical call.',
+    id: 'mclaren',
+    name: 'McLaren', code: 'MCL', color: '#ff8000', accent: '#8cebdd',
+    image: mclarenCar,
+    position: 'P3', points: '220', podiums: '3', races: '11',
+    summary: 'A recovery after an uneven opening stretch. The team benefits from concise strategy confirmation during high-pressure calls.',
+    signal: 'Focus the radio desk on clear confirmation when strategy decisions change quickly.',
   },
 ]
 
@@ -39,7 +42,7 @@ function StepHeader({ step, onBack, title }) {
 function LiveRadioCard({ team, onOpen }) {
   const messages = useMemo(() => [
     team ? `${team.name} radio online. The channel is tuned to this team's terminology.` : 'Select a team to tune the radio channel to its terminology.',
-    'PitWall Copilot listens for signal loss, urgency and missed acknowledgement.',
+    'Pitwall Copilot listens for signal loss, urgency and missed acknowledgement.',
   ], [team])
   const [messageIndex, setMessageIndex] = useState(0)
   const [typedMessage, setTypedMessage] = useState('')

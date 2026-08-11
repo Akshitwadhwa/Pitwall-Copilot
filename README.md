@@ -1,6 +1,6 @@
-# PitWall Copilot
+# Pitwall Copilot
 
-PitWall Copilot is the F1 radio-assistance prototype: a guided cockpit experience followed by a two-way Driver Radio / Engineer Radio workspace.
+Pitwall Copilot is the F1 radio-assistance prototype: a guided cockpit experience followed by a two-way Driver Radio / Engineer Radio workspace.
 
 ## Run the frontend
 

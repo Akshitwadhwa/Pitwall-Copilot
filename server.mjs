@@ -106,4 +106,4 @@ const server = http.createServer(async (request, response) => {
   return json(response, 404, { error: 'not found' })
 })
 
-server.listen(PORT, () => console.log(`PitWall API listening on http://localhost:${PORT}`))
+server.listen(PORT, () => console.log(`Pitwall API listening on http://localhost:${PORT}`))
