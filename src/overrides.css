@@ -2,6 +2,15 @@
   left: calc(50% + min(285px, 22vw));
 }
 
+/* Brighter landing film while preserving contrast for the welcome copy. */
+.welcome-video {
+  filter: saturate(.82) contrast(1.08) brightness(.82);
+}
+
+.welcome-video-shade {
+  background: linear-gradient(90deg, rgba(4, 9, 10, .78) 0%, rgba(5, 10, 11, .50) 42%, rgba(4, 9, 10, .25) 100%), linear-gradient(0deg, rgba(4, 8, 9, .58), transparent 52%);
+}
+
 .wheel-stage img {
   -webkit-mask-image: radial-gradient(ellipse 56% 48% at 50% 49%, #000 51%, transparent 96%);
   mask-image: radial-gradient(ellipse 56% 48% at 50% 49%, #000 51%, transparent 96%);

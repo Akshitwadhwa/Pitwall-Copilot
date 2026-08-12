@@ -5,3 +5,4 @@ dist/
 !.env.example
 .DS_Store
 npm-debug.log*
+src/assets/F1 Opening Titles 2026.mp4

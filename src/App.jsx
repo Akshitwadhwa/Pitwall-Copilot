@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowUpRight, ChevronRight, CircleDot, Mic, Radio, Send, Spa
 import haasCar from './assets/haas-f1.jpeg'
 import audiCar from './assets/audi-f1.jpg'
 import mclarenCar from './assets/mclaren-mcl38.jpg'
+import openingVideo from './assets/f1-opening-background.mp4'
 
 const teams = [
   {
@@ -273,6 +274,10 @@ function App() {
   return <main className={`app-shell page-${page}`} style={{ '--team': selected?.color || '#bffff0', '--accent': selected?.accent || '#ff8000' }}>
     <div className="film-grain" />
     {page === 'welcome' && <section className="welcome-page">
+      <video className="welcome-video" autoPlay muted loop playsInline preload="metadata" aria-hidden="true">
+        <source src={openingVideo} type="video/mp4" />
+      </video>
+      <div className="welcome-video-shade" aria-hidden="true" />
       <StepHeader step={1} onBack={() => setPage('welcome')} />
       <div className="welcome-copy">
         <div className="soft-label"><span /> F1 COMMUNICATION INTELLIGENCE</div>
