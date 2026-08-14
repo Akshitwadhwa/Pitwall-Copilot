@@ -4,15 +4,27 @@ import haasCar from './assets/haas-f1.jpeg'
 import audiCar from './assets/audi-f1.jpg'
 import mclarenCar from './assets/mclaren-mcl38.jpg'
 import openingVideo from './assets/f1-opening-background.mp4'
+import radioSound from './assets/F1 Radio - Sound effect (HD).mp3'
+import haasDriverOne from './assets/haas-driver-1.jpeg'
+import haasDriverTwo from './assets/haas-driver-2.webp'
 
 const teams = [
   {
     id: 'haas',
     name: 'Haas', code: 'HAA', color: '#d71920', accent: '#f4f4f4',
     image: haasCar,
+    drivers: [
+      { name: 'Esteban Ocon', number: '31', image: haasDriverOne, profile: 'PRECISE / FEEDBACK' },
+      { name: 'Oliver Bearman', number: '87', image: haasDriverTwo, profile: 'DIRECT / HIGH TEMPO' },
+    ],
     position: 'P7', points: '22', podiums: '0', races: '11',
     summary: 'A points-focused campaign where clear, concise feedback is essential for extracting the most from each race weekend.',
     signal: 'Prioritise fast issue classification and reliable driver acknowledgement during high-pressure calls.',
+    audioIssues: [
+      'Radio dropouts and missed acknowledgements during high-pressure calls.',
+      'Driver messages becoming difficult to hear over engine and pit-lane noise.',
+      'Need for shorter, confirmed instructions when the race situation changes quickly.',
+    ],
   },
   {
     id: 'audi',
@@ -264,20 +276,74 @@ function RadioDesk({ team, onBack }) {
   </section>
 }
 
+function AnimatedStat({ value }) {
+  const match = String(value).match(/^(\D*)(\d+)(.*)$/)
+  const prefix = match?.[1] || ''
+  const numeric = match ? Number(match[2]) : null
+  const suffix = match?.[3] || ''
+  const [display, setDisplay] = useState(Number.isFinite(numeric) ? 0 : value)
+
+  useEffect(() => {
+    if (!Number.isFinite(numeric)) {
+      setDisplay(value)
+      return undefined
+    }
+    let frame
+    const started = window.performance.now()
+    const tick = (now) => {
+      const progress = Math.min(1, (now - started) / 900)
+      const eased = 1 - Math.pow(1 - progress, 3)
+      setDisplay(Math.round(numeric * eased))
+      if (progress < 1) frame = window.requestAnimationFrame(tick)
+    }
+    frame = window.requestAnimationFrame(tick)
+    return () => window.cancelAnimationFrame(frame)
+  }, [numeric, value])
+
+  return <b>{Number.isFinite(numeric) ? `${prefix}${display}${suffix}` : display}</b>
+}
+
 function App() {
   const [page, setPage] = useState('welcome')
   const [activeTeam, setActiveTeam] = useState(null)
   const selected = teams.find((team) => team.id === activeTeam)
-  const goTo = (nextPage) => { window.scrollTo({ top: 0, behavior: 'auto' }); setPage(nextPage) }
-  const selectTeam = (team) => { setActiveTeam(team.id); goTo('cockpit') }
+  const audioRef = useRef(null)
+  const [radioAudioActive, setRadioAudioActive] = useState(false)
+  const startRadioAudio = () => {
+    const audio = audioRef.current
+    if (!audio) return
+    audio.currentTime = 0
+    audio.play().then(() => setRadioAudioActive(true)).catch(() => setRadioAudioActive(false))
+  }
+  const stopRadioAudio = () => {
+    const audio = audioRef.current
+    if (audio) {
+      audio.pause()
+      audio.currentTime = 0
+    }
+    setRadioAudioActive(false)
+  }
+  const goTo = (nextPage) => {
+    if (nextPage === 'radio' || nextPage === 'teams' || nextPage === 'welcome') stopRadioAudio()
+    window.scrollTo({ top: 0, behavior: 'auto' })
+    setPage(nextPage)
+  }
+  const selectTeam = (team) => {
+    setActiveTeam(team.id)
+    startRadioAudio()
+    goTo('briefing')
+  }
 
   return <main className={`app-shell page-${page}`} style={{ '--team': selected?.color || '#bffff0', '--accent': selected?.accent || '#ff8000' }}>
     <div className="film-grain" />
-    {page === 'welcome' && <section className="welcome-page">
-      <video className="welcome-video" autoPlay muted loop playsInline preload="metadata" aria-hidden="true">
+    <audio ref={audioRef} src={radioSound} preload="auto" aria-label="Team radio ambience" onEnded={() => setRadioAudioActive(false)} />
+    {(page === 'welcome' || page === 'teams') && <>
+      <video className="app-background-video" autoPlay muted loop playsInline preload="metadata" aria-hidden="true">
         <source src={openingVideo} type="video/mp4" />
       </video>
-      <div className="welcome-video-shade" aria-hidden="true" />
+      <div className="app-background-video-shade" aria-hidden="true" />
+    </>}
+    {page === 'welcome' && <section className="welcome-page">
       <StepHeader step={1} onBack={() => setPage('welcome')} />
       <div className="welcome-copy">
         <div className="soft-label"><span /> F1 COMMUNICATION INTELLIGENCE</div>
@@ -303,16 +369,28 @@ function App() {
     </section>}
 
     {page === 'briefing' && selected && <section className="briefing-page">
-      <StepHeader step={3} onBack={() => setPage('teams')} />
+      <StepHeader step={3} onBack={() => goTo('teams')} />
       <div className="briefing-wrap">
-        <div className="briefing-title"><button className="back-link" onClick={() => setPage('teams')}><ArrowLeft size={15} /> CHANGE TEAM</button><div className="soft-label"><span /> TEAM BRIEFING / 2026</div><h1>{selected.name}<br /><em>season.</em></h1></div>
+        <div className="briefing-title"><button className="back-link" onClick={() => goTo('teams')}><ArrowLeft size={15} /> CHANGE TEAM</button><div className="soft-label"><span /> TEAM BRIEFING / 2026</div><h1>{selected.name}<br /><em>season.</em></h1></div>
         <div className="team-portrait"><img src={selected.image} alt="" /><span /><div><b>{selected.code}</b><small>TEAM PROFILE LOADED</small></div></div>
+        {selected.drivers?.length > 0 && <div className="driver-lineup">
+          <div className="driver-lineup-heading"><span>DRIVER LINE-UP</span><i /> <small>RADIO CHANNELS READY</small></div>
+          <div className="driver-cards">
+            {selected.drivers.map((driver) => <article className="driver-card" key={driver.number}>
+              <img src={driver.image} alt={driver.name} />
+              <div className="driver-card-shade" />
+              <div className="driver-card-info"><span className="driver-number">{driver.number}</span><div><b>{driver.name}</b><small>{driver.profile}</small></div></div>
+              <div className="driver-signal"><i /><i /><i /><i /><span>RADIO ONLINE</span></div>
+            </article>)}
+          </div>
+        </div>}
         <article className="briefing-data">
           <p className="briefing-summary">{selected.summary}</p>
-          <div className="stat-grid"><div><span>CHAMPIONSHIP</span><b>{selected.position}</b></div><div><span>POINTS</span><b>{selected.points}</b></div><div><span>GP PODIUMS</span><b>{selected.podiums}</b></div><div><span>ROUNDS</span><b>{selected.races}</b></div></div>
+          <div className="stat-grid"><div><span>CHAMPIONSHIP</span><AnimatedStat value={selected.position} /></div><div><span>POINTS</span><AnimatedStat value={selected.points} /></div><div><span>GP PODIUMS</span><AnimatedStat value={selected.podiums} /></div><div><span>ROUNDS</span><AnimatedStat value={selected.races} /></div></div>
           <div className="copilot-note"><SparkleIcon size={17} /><div><span>COPILOT FOCUS</span><p>{selected.signal}</p></div></div>
+          {selected.audioIssues?.length > 0 && <section className="audio-issues"><div className="audio-issues-heading"><span>RADIO ISSUES / SIGNAL HISTORY</span><i /><small>KNOWN COMMUNICATION FRICTION</small></div><div className="audio-issue-list">{selected.audioIssues.map((issue, index) => <div className="audio-issue" key={issue}><b>0{index + 1}</b><p>{issue}</p><span className="issue-wave"><i /><i /><i /><i /></span></div>)}</div></section>}
           <div className="source-line">SEASON SNAPSHOT: FORMULA1.COM RESULTS / CHECKED 10 AUG 2026</div>
-          <button className="primary-action next-action" onClick={() => setPage('radio')}>CONTINUE TO RADIO DESK <Mic size={17} /></button>
+          <button className="primary-action next-action" onClick={() => goTo('cockpit')}>ENTER COCKPIT LINK <ArrowUpRight size={17} /></button>
         </article>
       </div>
       <div className="briefing-footer">DATA SHOULD INFORM THE DRIVER. NEVER DISTRACT THEM.</div>

@@ -2,10 +2,24 @@
 
 Pitwall Copilot is the F1 radio-assistance prototype: a guided cockpit experience followed by a two-way Driver Radio / Engineer Radio workspace.
 
-## Run the frontend
+## Project structure
+
+```text
+frontend/   Vite + React interface
+backend/    Node.js radio-analysis API and reference data
+```
+
+## Install dependencies
+
+From the repository root:
 
 ```bash
 npm install
+```
+
+## Run the frontend
+
+```bash
 npm run dev
 ```
 
@@ -21,7 +35,7 @@ The frontend proxies `/api` requests to `http://127.0.0.1:8787`. Without the API
 
 ## Hugging Face integration
 
-The reference examples live in `data/f1-radio-examples.json`. The API retrieves the closest example and formats the response into the approved communication schema. If `HF_API_TOKEN` is present, low-similarity messages are sent to `facebook/bart-large-mnli` through the Hugging Face Inference API:
+The reference examples live in `backend/data/f1-radio-examples.json`. The API retrieves the closest example and formats the response into the approved communication schema. If `HF_API_TOKEN` is present, low-similarity messages are sent to `facebook/bart-large-mnli` through the Hugging Face Inference API:
 
 ```bash
 HF_API_TOKEN=your_token npm run server
