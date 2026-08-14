@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ArrowUpRight, ChevronRight, CircleDot, Mic, Radio, Send, Sparkles as SparkleIcon, Volume2 } from 'lucide-react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowLeft, ArrowUpRight, ChevronRight, CircleDot, Mic, Radio, Send, Sparkles as SparkleIcon, Square, Volume2 } from 'lucide-react'
 import haasCar from './assets/haas-f1.jpeg'
 import audiCar from './assets/audi-f1.jpg'
 import mclarenCar from './assets/mclaren-mcl38.jpg'
@@ -44,6 +44,140 @@ const teams = [
   },
 ]
 
+// ─── Mood helpers ──────────────────────────────────────────────────────────────
+
+const MOOD_COLOUR = { ANGRY: '#ff4040', FRUSTRATED: '#ff9020', CALM: '#40d490', FOCUSED: '#40d490', REVIEW: '#f0b040' }
+const MOOD_LABEL = { ANGRY: '⚠ ANGRY', FRUSTRATED: '! FRUSTRATED', CALM: '✓ CALM', FOCUSED: '✓ FOCUSED', REVIEW: '? UNCERTAIN' }
+
+function moodColor(mood) {
+  return MOOD_COLOUR[mood] || '#8da19a'
+}
+
+// ─── Voice recorder with browser SpeechRecognition ────────────────────────────
+//
+// Primary transcription: browser's built-in SpeechRecognition (Chrome/Edge).
+// Works with zero API keys. Returns { transcript, audioFeatures: { rms } }.
+// Web Audio API is used in parallel to compute RMS (vocal energy) for mood.
+
+const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition
+
+function useVoiceRecorder() {
+  const [recording, setRecording] = useState(false)
+  const [error, setError] = useState(null)
+  const recognitionRef = useRef(null)
+  const analyserRef = useRef(null)
+  const audioCtxRef = useRef(null)
+  const rmsHistoryRef = useRef([])
+  const streamRef = useRef(null)
+  const pollIdRef = useRef(null)
+  const transcriptRef = useRef('')
+  const chunksRef = useRef([])
+  const mediaRecorderRef = useRef(null)
+
+  const start = useCallback(async () => {
+    setError(null)
+    transcriptRef.current = ''
+
+    if (!SpeechRecognitionAPI) {
+      setError('Speech recognition is not supported in this browser. Please use Chrome or Edge.')
+      return
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+
+      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      audioCtxRef.current = ctx
+      const source = ctx.createMediaStreamSource(stream)
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 2048
+      source.connect(analyser)
+      analyserRef.current = analyser
+      rmsHistoryRef.current = []
+
+      const buffer = new Float32Array(analyser.fftSize)
+      pollIdRef.current = setInterval(() => {
+        if (!analyserRef.current) return
+        analyser.getFloatTimeDomainData(buffer)
+        const rms = Math.sqrt(buffer.reduce((sum, v) => sum + v * v, 0) / buffer.length)
+        rmsHistoryRef.current.push(rms)
+      }, 50)
+
+      // Start MediaRecorder to capture blob for Whisper API
+      const mr = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' })
+      chunksRef.current = []
+      mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data) }
+      mr.start(100)
+      mediaRecorderRef.current = mr
+
+      // Start local SpeechRecognition as a fallback
+      const recognition = new SpeechRecognitionAPI()
+      recognition.continuous = true
+      recognition.interimResults = true
+      recognition.lang = 'en-US'
+
+      recognition.onresult = (event) => {
+        let fullTranscript = ''
+        for (let i = 0; i < event.results.length; i++) {
+          fullTranscript += event.results[i][0].transcript + ' '
+        }
+        transcriptRef.current = fullTranscript.trim()
+      }
+
+      recognition.onerror = (event) => {
+        if (event.error !== 'aborted' && event.error !== 'no-speech') {
+          setError(`Speech error: ${event.error}`)
+        }
+      }
+
+      recognition.start()
+      recognitionRef.current = recognition
+      setRecording(true)
+    } catch (err) {
+      setError(err.message || 'Microphone access denied')
+    }
+  }, [])
+
+  const stop = useCallback(() => {
+    return new Promise((resolve) => {
+      if (pollIdRef.current) { clearInterval(pollIdRef.current); pollIdRef.current = null }
+      if (analyserRef.current) { analyserRef.current = null }
+      if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null }
+      if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null }
+
+      const history = rmsHistoryRef.current
+      const avgRms = history.length > 0 ? history.reduce((a, b) => a + b, 0) / history.length : 0
+      const audioFeatures = { rms: Number(avgRms.toFixed(4)) }
+
+      // Wait for both recorders to finalize
+      const p1 = new Promise((r) => {
+        const mr = mediaRecorderRef.current
+        if (!mr || mr.state === 'inactive') return r(null)
+        mr.onstop = () => r(new Blob(chunksRef.current, { type: 'audio/webm' }))
+        mr.stop()
+      })
+
+      const p2 = new Promise((r) => {
+        const rec = recognitionRef.current
+        if (!rec) return r('')
+        rec.onend = () => r(transcriptRef.current.trim())
+        try { rec.stop() } catch {}
+      })
+
+      Promise.all([p1, p2]).then(([blob, transcript]) => {
+        setRecording(false)
+        resolve({ transcript, blob, audioFeatures })
+      })
+    })
+  }, [])
+
+  return { recording, error, start, stop }
+}
+
+
+// ─── Shared UI ────────────────────────────────────────────────────────────────
+
 function StepHeader({ step, onBack, title }) {
   return <header className="step-header">
     <button className="wordmark" onClick={onBack}><span><Radio size={16} /></span> PITWALL <em>COPILOT</em></button>
@@ -75,10 +209,7 @@ function LiveRadioCard({ team, onOpen }) {
 
   const openDesk = () => onOpen?.()
   const handleKeyDown = (event) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      openDesk()
-    }
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openDesk() }
   }
 
   return <aside className="live-radio-card" aria-label="Live team radio example" role={onOpen ? 'button' : undefined} tabIndex={onOpen ? 0 : undefined} onClick={openDesk} onKeyDown={handleKeyDown}>
@@ -90,15 +221,64 @@ function LiveRadioCard({ team, onOpen }) {
   </aside>
 }
 
-function F1Wheel({ team, mode, setMode }) {
+// ─── F1 Wheel — hold-to-speak buttons ────────────────────────────────────────
+// Left button = ENGINEER RADIO, Right button = DRIVER RADIO (swapped per spec)
+
+function F1Wheel({ team, keywords, showKeywords, engineerRecording, driverRecording, onEngineerDown, onEngineerUp, onDriverDown, onDriverUp }) {
   const accent = team.color
   const secondary = team.accent
-  const button = (x, y, label, active, handler) => <g className={`wheel-hit ${active ? 'is-active' : ''}`} onClick={handler} role="button" tabIndex="0" aria-label={label}>
-    <rect x={x} y={y} width="112" height="42" rx="9" fill={active ? accent : '#10181a'} stroke={active ? accent : '#5d746f'} strokeWidth="2" />
-    <text x={x + 56} y={y + 26} fill={active ? '#06100e' : '#d7eee7'} textAnchor="middle" fontSize="12" fontFamily="DM Mono, monospace" letterSpacing="1">{label}</text>
-  </g>
 
-  return <svg className="vector-wheel" viewBox="0 0 1000 690" role="img" aria-label={`${team.name} interactive F1 steering wheel`}>
+  const [kwIndex, setKwIndex] = useState(0)
+  const [kwVisible, setKwVisible] = useState(false)
+
+  useEffect(() => {
+    if (!showKeywords || !keywords?.length) { setKwVisible(false); setKwIndex(0); return }
+    setKwIndex(0)
+    setKwVisible(true)
+  }, [showKeywords, keywords])
+
+  useEffect(() => {
+    if (!kwVisible || !keywords?.length) return
+    if (kwIndex >= keywords.length) { setKwVisible(false); return }
+    const timer = setTimeout(() => setKwIndex((i) => i + 1), 3000)
+    return () => clearTimeout(timer)
+  }, [kwVisible, kwIndex, keywords])
+
+  const currentKw = kwVisible && keywords?.[kwIndex] ? keywords[kwIndex] : null
+  const mode = engineerRecording ? 'engineer' : driverRecording ? 'driver' : 'idle'
+
+  // Render a hold-to-speak button as an SVG group
+  const holdButton = (x, y, label, isRecording, onDown, onUp) => {
+    const active = isRecording
+    const fill = active ? accent : '#10181a'
+    const stroke = active ? accent : '#5d746f'
+    const textFill = active ? '#06100e' : '#d7eee7'
+    return (
+      <g
+        className={`wheel-hit ${active ? 'is-active wheel-mic-active' : ''}`}
+        role="button"
+        tabIndex="0"
+        aria-label={isRecording ? `Release to send ${label}` : `Hold ${label} to speak`}
+        style={{ cursor: 'pointer' }}
+        onMouseDown={onDown}
+        onMouseUp={onUp}
+        onMouseLeave={onUp}
+        onTouchStart={(e) => { e.preventDefault(); onDown() }}
+        onTouchEnd={(e) => { e.preventDefault(); onUp() }}
+        onKeyDown={(e) => e.key === ' ' && onDown()}
+        onKeyUp={(e) => e.key === ' ' && onUp()}
+      >
+        <rect x={x} y={y} width="112" height="42" rx="9" fill={fill} stroke={stroke} strokeWidth={active ? 3 : 2} />
+        {active && <rect x={x} y={y} width="112" height="42" rx="9" fill="none" stroke={accent} strokeWidth="6" opacity=".3">
+          <animate attributeName="opacity" values=".3;.8;.3" dur=".8s" repeatCount="indefinite" />
+        </rect>}
+        <text x={x + 56} y={y + 17} fill={textFill} textAnchor="middle" fontSize="10" fontFamily="DM Mono, monospace" letterSpacing="1">{label}</text>
+        <text x={x + 56} y={y + 32} fill={active ? '#06100e' : '#8da19a'} textAnchor="middle" fontSize="8" fontFamily="DM Mono, monospace" letterSpacing="1">{active ? '● REC' : 'HOLD TO SPEAK'}</text>
+      </g>
+    )
+  }
+
+  return <svg className="vector-wheel" viewBox="0 0 1000 690" role="img" aria-label={`${team.name} F1 steering wheel — hold a button to speak`}>
     <defs>
       <linearGradient id="wheelBody" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stopColor="#202c2d" /><stop offset=".5" stopColor="#0a1012" /><stop offset="1" stopColor="#273432" /></linearGradient>
       <linearGradient id="screenGlow" x1="0" x2="1"><stop stopColor={accent} stopOpacity=".9" /><stop offset="1" stopColor={secondary} stopOpacity=".8" /></linearGradient>
@@ -111,11 +291,48 @@ function F1Wheel({ team, mode, setMode }) {
       <path d="M176 196 C124 198 93 247 100 326 C106 400 135 463 177 493 L222 459 L207 252 Z" fill="#101819" stroke="#647e77" strokeWidth="5" />
       <path d="M824 196 C876 198 907 247 900 326 C894 400 865 463 823 493 L778 459 L793 252 Z" fill="#101819" stroke="#647e77" strokeWidth="5" />
       <path d="M390 194 L610 194 L655 232 L655 402 L610 438 L390 438 L345 402 L345 232 Z" fill="#091012" stroke="#829a92" strokeWidth="4" />
-      <rect x="371" y="220" width="258" height="145" rx="10" fill="#081012" stroke={accent} strokeOpacity=".65" strokeWidth="3" />
-      <rect x="389" y="239" width="222" height="10" rx="5" fill="url(#screenGlow)" opacity=".78" />
-      <text x="389" y="281" fill="#e8fff7" fontSize="18" fontFamily="DM Mono, monospace" letterSpacing="2">{team.code} / RADIO</text>
-      <text x="389" y="309" fill={accent} fontSize="23" fontWeight="700" fontFamily="Space Grotesk, sans-serif">{mode === 'driver' ? 'DRIVER → ENGINEER' : 'ENGINEER → DRIVER'}</text>
-      <text x="389" y="338" fill="#7e9b91" fontSize="12" fontFamily="DM Mono, monospace">LIVE TRANSCRIPTION / READY</text>
+
+      {/* Center screen */}
+      <rect x="371" y="220" width="258" height="145" rx="10" fill={currentKw ? '#ffffff' : '#081012'} stroke={currentKw ? '#ffffff' : accent} strokeOpacity={currentKw ? '1' : '.65'} strokeWidth="3" style={{ transition: 'fill .3s, stroke .3s' }} />
+      <rect x="389" y="239" width="222" height="10" rx="5" fill={currentKw ? '#cccccc' : 'url(#screenGlow)'} opacity=".78" style={{ transition: 'fill .3s' }} />
+
+      {currentKw ? (() => {
+        const words = currentKw.split(' ')
+        if (words.length === 3) {
+          return (
+            <>
+              <text x="500" y="280" fill="#07110e" textAnchor="middle" fontSize="24" fontWeight="700" fontFamily="Space Grotesk, sans-serif" letterSpacing="-1" className="wheel-kw-text">{words[0]} {words[1]}</text>
+              <text x="500" y="304" fill="#07110e" textAnchor="middle" fontSize="24" fontWeight="700" fontFamily="Space Grotesk, sans-serif" letterSpacing="-1" className="wheel-kw-text">{words[2]}</text>
+              <text x="500" y="328" fill="#4d5a56" textAnchor="middle" fontSize="9" fontFamily="DM Mono, monospace" letterSpacing="2">ENGINEER MESSAGE</text>
+              {keywords.length > 1 && <text x="500" y="348" fill="#888" textAnchor="middle" fontSize="8" fontFamily="DM Mono, monospace">{kwIndex + 1} / {keywords.length}</text>}
+            </>
+          )
+        }
+        return (
+          <>
+            <text x="500" y="295" fill="#07110e" textAnchor="middle" fontSize="26" fontWeight="700" fontFamily="Space Grotesk, sans-serif" letterSpacing="-1" className="wheel-kw-text">{currentKw}</text>
+            <text x="500" y="318" fill="#4d5a56" textAnchor="middle" fontSize="9" fontFamily="DM Mono, monospace" letterSpacing="2">ENGINEER MESSAGE</text>
+            {keywords.length > 1 && <text x="500" y="348" fill="#888" textAnchor="middle" fontSize="8" fontFamily="DM Mono, monospace">{kwIndex + 1} / {keywords.length}</text>}
+          </>
+        )
+      })() : engineerRecording ? (
+        <>
+          <text x="500" y="291" fill={accent} textAnchor="middle" fontSize="13" fontFamily="DM Mono, monospace" letterSpacing="1">ENGINEER SPEAKING</text>
+          <text x="500" y="312" fill="#8da19a" textAnchor="middle" fontSize="10" fontFamily="DM Mono, monospace">LISTENING…</text>
+        </>
+      ) : driverRecording ? (
+        <>
+          <text x="500" y="291" fill={accent} textAnchor="middle" fontSize="13" fontFamily="DM Mono, monospace" letterSpacing="1">DRIVER SPEAKING</text>
+          <text x="500" y="312" fill="#8da19a" textAnchor="middle" fontSize="10" fontFamily="DM Mono, monospace">LISTENING…</text>
+        </>
+      ) : (
+        <>
+          <text x="389" y="281" fill="#e8fff7" fontSize="18" fontFamily="DM Mono, monospace" letterSpacing="2">{team.code} / RADIO</text>
+          <text x="389" y="309" fill={accent} fontSize="20" fontWeight="700" fontFamily="Space Grotesk, sans-serif">{mode === 'engineer' ? 'ENGINEER → DRIVER' : 'DRIVER → ENGINEER'}</text>
+          <text x="389" y="338" fill="#7e9b91" fontSize="12" fontFamily="DM Mono, monospace">LIVE TRANSCRIPTION / READY</text>
+        </>
+      )}
+
       {Array.from({ length: 15 }).map((_, index) => <rect key={index} x={389 + index * 14.4} y="256" width="8" height={8 + (index % 4) * 4} rx="3" fill={index % 4 === 0 ? secondary : accent} opacity=".75" />)}
       {Array.from({ length: 12 }).map((_, index) => <circle key={`led-${index}`} cx={401 + index * 18} cy="187" r="5" fill={index < 4 ? accent : index < 8 ? secondary : '#77d8ba'} opacity=".85" />)}
       <circle cx="271" cy="255" r="48" fill="#121d1e" stroke={accent} strokeWidth="4" /><text x="271" y="261" textAnchor="middle" fill={accent} fontSize="22" fontFamily="DM Mono">BRK</text>
@@ -123,19 +340,41 @@ function F1Wheel({ team, mode, setMode }) {
       <circle cx="278" cy="379" r="42" fill="#151f20" stroke="#d85d5a" strokeWidth="5" /><text x="278" y="386" textAnchor="middle" fill="#f4aca0" fontSize="17" fontFamily="DM Mono">DIFF</text>
       <circle cx="722" cy="379" r="42" fill="#151f20" stroke="#5fc6aa" strokeWidth="5" /><text x="722" y="386" textAnchor="middle" fill="#a9f5df" fontSize="17" fontFamily="DM Mono">GRP</text>
       <circle cx="500" cy="414" r="27" fill="#111b1c" stroke="#83a79b" strokeWidth="3" /><text x="500" y="420" textAnchor="middle" fill="#dcfff4" fontSize="15" fontFamily="DM Mono">N</text>
-      {button(128, 139, 'DRIVER RADIO', mode === 'driver', () => setMode('driver'))}
-      {button(760, 139, 'ENGINEER RADIO', mode === 'engineer', () => setMode('engineer'))}
-      <text x="184" y="530" fill="#7d9990" fontSize="11" fontFamily="DM Mono" letterSpacing="2">INPUT</text>
-      <text x="741" y="530" fill="#7d9990" fontSize="11" fontFamily="DM Mono" letterSpacing="2">OUTPUT</text>
+
+      {/* LEFT = ENGINEER RADIO, RIGHT = DRIVER RADIO (swapped per spec) */}
+      {holdButton(128, 139, 'ENGINEER RADIO', engineerRecording, onEngineerDown, onEngineerUp)}
+      {holdButton(760, 139, 'DRIVER RADIO', driverRecording, onDriverDown, onDriverUp)}
+
+      <text x="184" y="530" fill="#7d9990" fontSize="11" fontFamily="DM Mono" letterSpacing="2">ENGINEER</text>
+      <text x="741" y="530" fill="#7d9990" fontSize="11" fontFamily="DM Mono" letterSpacing="2">DRIVER</text>
     </g>
   </svg>
 }
+
+// ─── Cockpit Link — main interactive page ────────────────────────────────────
+// Engineer button (left) and Driver button (right) are hold-to-speak mics.
+// Left panel shows engineer transcript, right shows driver transcript + mood.
 
 function CockpitLink({ team, onBack, onStart }) {
   const sequenceRef = useRef()
   const [progress, setProgress] = useState(0)
   const [pointer, setPointer] = useState({ x: 0, y: 0 })
-  const [mode, setMode] = useState('driver')
+
+  // Voice recorder instances
+  const engineerRecorder = useVoiceRecorder()
+  const driverRecorder = useVoiceRecorder()
+
+  // Transcript panels
+  const [engineerTranscript, setEngineerTranscript] = useState('')
+  const [engineerProcessing, setEngineerProcessing] = useState(false)
+  const [driverTranscript, setDriverTranscript] = useState('')
+  const [driverMood, setDriverMood] = useState(null)
+  const [driverIssue, setDriverIssue] = useState('')
+  const [driverProcessing, setDriverProcessing] = useState(false)
+
+  // Wheel keyword display
+  const [wheelKeywords, setWheelKeywords] = useState([])
+  const [showWheelKeywords, setShowWheelKeywords] = useState(false)
 
   useEffect(() => {
     const updateProgress = () => {
@@ -154,10 +393,129 @@ function CockpitLink({ team, onBack, onStart }) {
     }
   }, [])
 
+  // ── Engineer hold-to-speak ──
+  const handleEngineerDown = useCallback(async () => {
+    if (engineerRecorder.recording || driverRecorder.recording) return
+    await engineerRecorder.start()
+  }, [engineerRecorder, driverRecorder])
+
+  const handleEngineerUp = useCallback(async () => {
+    if (!engineerRecorder.recording) return
+    setEngineerProcessing(true)
+    const result = await engineerRecorder.stop()
+    if (!result) { setEngineerProcessing(false); return }
+
+    const { transcript, blob } = result
+    let text = transcript?.trim()
+    
+    // Try to get the high-accuracy transcript from Whisper first
+    try {
+      if (blob) {
+        const whisperRes = await requestTranscription(blob, 'engineer', team)
+        if (whisperRes.transcription) text = whisperRes.transcription
+      }
+    } catch {}
+
+    if (text) setEngineerTranscript(text)
+
+    try {
+      // Send text to backend for keyword extraction
+      const res = await requestRadioAnalysis('/api/analyse/engineer', text || engineerTranscript || '', team, null)
+      let kws = res.keywords?.length > 0 ? res.keywords : res.keyword ? [res.keyword] : []
+      
+      // If backend returned the default fallback, try smart extraction
+      if (kws.length === 0 || (kws.length === 1 && kws[0] === 'CHECK RADIO')) {
+        const smart = smartExtractKeywords(text || '')
+        if (smart.length > 0) kws = smart
+      }
+
+      setWheelKeywords(kws)
+      setShowWheelKeywords(false)
+      setTimeout(() => setShowWheelKeywords(true), 60)
+      setTimeout(() => setShowWheelKeywords(false), kws.length * 3000 + 300)
+    } catch {
+      // Local fallback using the real transcript
+      let kws = extractEngineerKeywordsLocal(text || engineerTranscript || '')
+      if (kws.length === 0 || (kws.length === 1 && kws[0] === 'CHECK RADIO')) {
+        const smart = smartExtractKeywords(text || engineerTranscript || '')
+        if (smart.length > 0) kws = smart
+      }
+      if (kws.length === 0) kws = ['CHECK RADIO']
+
+      setWheelKeywords(kws)
+      setShowWheelKeywords(false)
+      setTimeout(() => setShowWheelKeywords(true), 60)
+      setTimeout(() => setShowWheelKeywords(false), kws.length * 3000 + 300)
+    } finally {
+      setEngineerProcessing(false)
+    }
+  }, [engineerRecorder, driverRecorder, team, engineerTranscript])
+
+  // ── Driver hold-to-speak ──
+  const handleDriverDown = useCallback(async () => {
+    if (driverRecorder.recording || engineerRecorder.recording) return
+    await driverRecorder.start()
+  }, [driverRecorder, engineerRecorder])
+
+  const handleDriverUp = useCallback(async () => {
+    if (!driverRecorder.recording) return
+    setDriverProcessing(true)
+    const result = await driverRecorder.stop()
+    if (!result) { setDriverProcessing(false); return }
+
+    const { transcript, audioFeatures, blob } = result
+    let text = transcript?.trim()
+    
+    // Try to get the high-accuracy transcript from Whisper first
+    try {
+      if (blob) {
+        const whisperRes = await requestTranscription(blob, 'driver', team)
+        if (whisperRes.transcription) text = whisperRes.transcription
+      }
+    } catch {}
+
+    if (text) setDriverTranscript(text)
+
+    // Determine mood from BOTH text cuss-words AND audio RMS energy
+    // RMS > 0.18 = high vocal energy (ANGRY), > 0.08 = medium (FRUSTRATED)
+    let rmsBasedMood = 'CALM'
+    if (audioFeatures.rms > 0.18) rmsBasedMood = 'ANGRY'
+    else if (audioFeatures.rms > 0.08) rmsBasedMood = 'FRUSTRATED'
+
+    // Explicitly check for cuss words or asterisks (censored profanity)
+    const CUSS = ['shit', 'damn', 'crap', 'hell', 'fuck', 'bloody', 'bastard', 'rubbish', 'ridiculous', 'useless', 'idiot', 'stupid', 'terrible', 'horrible', 'awful', 'pathetic', 'garbage', 'trash', 'dammit', 'bollocks', 'screw', 'sucks', 'hate', 'worst', 'disaster', 'unbelievable', 'insane']
+    const censoredCount = (text?.match(/\*{3,}/g) || []).length
+    const cussCount = CUSS.filter(w => text?.toLowerCase().includes(w)).length + censoredCount
+
+    try {
+      // Send transcript + audio features to backend for classification
+      const res = await requestRadioAnalysis('/api/analyse/driver', text || driverTranscript || '', team, audioFeatures)
+      let textMood = res.mood || res.state || 'CALM'
+      
+      // Force text mood to ANGRY if explicit profanity is found, overriding backend
+      if (cussCount >= 1) textMood = 'ANGRY'
+
+      // Take the more extreme of the two mood signals
+      const moodRank = { CALM: 0, FOCUSED: 0, REVIEW: 1, FRUSTRATED: 2, ANGRY: 3 }
+      const finalMood = (moodRank[rmsBasedMood] || 0) >= (moodRank[textMood] || 0) ? rmsBasedMood : textMood
+
+      setDriverMood(finalMood)
+      setDriverIssue(res.issue || res.keyword || '')
+    } catch {
+      // Local fallback: combine text analysis + rms
+      const local = analyseDriverMessage(text || driverTranscript || '')
+      const moodRank = { CALM: 0, FOCUSED: 0, REVIEW: 1, FRUSTRATED: 2, ANGRY: 3 }
+      const localMoodStr = local.state || 'CALM'
+      const finalMood = (moodRank[rmsBasedMood] || 0) >= (moodRank[localMoodStr] || 0) ? rmsBasedMood : localMoodStr
+      setDriverMood(finalMood)
+      setDriverIssue(local.issue || '')
+    } finally {
+      setDriverProcessing(false)
+    }
+  }, [driverRecorder, engineerRecorder, team, driverTranscript])
+
+  const panelOpacity = Math.max(0, Math.min(1, (progress - .72) * 3.6))
   const introOpacity = Math.max(0, 1 - progress * 2.5)
-  // Keep the side radio card out of the transition. It should arrive only once
-  // the wheel is locked, then remain available as the hand-off into the desk.
-  const radioOpacity = Math.max(0, Math.min(1, (progress - .72) * 3.6))
   const wheelStyle = {
     transform: `translate(calc(-50% + ${pointer.x * 12}px), calc(-50% + ${progress * 95 + pointer.y * 6}px)) scale(${1.02 - progress * .14}) rotate(${progress * 1.2 + pointer.x * 1.1}deg)`,
   }
@@ -170,46 +528,201 @@ function CockpitLink({ team, onBack, onStart }) {
     <div className="cockpit-sticky" onPointerMove={moveWheel} onPointerLeave={() => setPointer({ x: 0, y: 0 })}>
       <StepHeader step={3} title={`${team.name.toUpperCase()} / COCKPIT LINK`} onBack={onBack} />
       <div className="cockpit-topline"><span><i /> TEAM PROFILE LOCKED</span><span>SCROLL TO ENGAGE</span></div>
+
+      {/* Intro copy fades out as wheel locks */}
       <div className="sequence-copy" style={{ opacity: introOpacity, transform: `translateY(${-progress * 65}px)` }}>
         <div className="soft-label"><span /> PITWALL INTERFACE</div>
         <h1>Your wheel is<br /><em>the signal.</em></h1>
-        <p>{team.name} is linked. Every important message should travel clearly between driver and engineer.</p>
+        <p>Hold <strong>ENGINEER RADIO</strong> or <strong>DRIVER RADIO</strong> on the wheel to speak. The AI will transcribe, classify, and relay your message.</p>
       </div>
-      <div className="sequence-wheel" style={wheelStyle}><F1Wheel team={team} mode={mode} setMode={setMode} /></div>
+
+      {/* Steering wheel */}
+      <div className="sequence-wheel" style={wheelStyle}>
+        <F1Wheel
+          team={team}
+          keywords={wheelKeywords}
+          showKeywords={showWheelKeywords}
+          engineerRecording={engineerRecorder.recording}
+          driverRecording={driverRecorder.recording}
+          onEngineerDown={handleEngineerDown}
+          onEngineerUp={handleEngineerUp}
+          onDriverDown={handleDriverDown}
+          onDriverUp={handleDriverUp}
+        />
+      </div>
+
+      {/* Hood decoration */}
       <div className="cockpit-hood" style={{ opacity: Math.min(1, progress * 1.7) }}><span className="hood-light hood-left" /><span className="hood-light hood-right" /><b>COCKPIT LINK</b></div>
-      <div className="sequence-radio" style={{ opacity: radioOpacity, pointerEvents: radioOpacity > .65 ? 'auto' : 'none', transform: `translateX(${(1 - radioOpacity) * 36}px)` }}><LiveRadioCard team={team} onOpen={() => onStart(mode)} /></div>
+
+      {/* Engineer transcript panel — LEFT side */}
+      <div className="cockpit-transcript cockpit-transcript-left" style={{ opacity: panelOpacity, pointerEvents: panelOpacity > .5 ? 'auto' : 'none', transform: `translateX(${(1 - panelOpacity) * -28}px)` }}>
+        <div className="ct-label"><span className="ct-dot" /> ENGINEER RADIO</div>
+        {engineerProcessing
+          ? <p className="ct-processing">PROCESSING…</p>
+          : engineerTranscript
+          ? <p className="ct-text">"{engineerTranscript}"</p>
+          : <p className="ct-idle">Hold ENGINEER RADIO to speak.</p>}
+        {wheelKeywords.length > 0 && !engineerProcessing && (
+          <div className="ct-keywords">
+            {wheelKeywords.map((kw, i) => <span key={i} className="ct-kw">{kw}</span>)}
+          </div>
+        )}
+      </div>
+
+      {/* Driver transcript panel — RIGHT side */}
+      <div className="cockpit-transcript cockpit-transcript-right" style={{ opacity: panelOpacity, pointerEvents: panelOpacity > .5 ? 'auto' : 'none', transform: `translateX(${(1 - panelOpacity) * 28}px)` }}>
+        <div className="ct-label"><span className="ct-dot" /> DRIVER RADIO</div>
+        {driverProcessing
+          ? <p className="ct-processing">PROCESSING…</p>
+          : driverTranscript
+          ? <p className="ct-text">"{driverTranscript}"</p>
+          : <p className="ct-idle">Hold DRIVER RADIO to speak.</p>}
+        {driverMood && !driverProcessing && (
+          <div className="ct-mood" style={{ color: moodColor(driverMood) }}>
+            {MOOD_LABEL[driverMood] || driverMood}
+            {driverIssue && <span className="ct-issue">{driverIssue}</span>}
+          </div>
+        )}
+      </div>
+
       <div className="scroll-marker" style={{ opacity: introOpacity }}>SCROLL <span>↓</span></div>
     </div>
   </section>
 }
 
+
+// ─── Sample messages ──────────────────────────────────────────────────────────
+
 const driverSamples = ['The rear is sliding badly through Turn 2.', 'The front tyres are gone.', "I can't hear you properly.", 'Box this lap.', 'Safety car, safety car.']
-const engineerSamples = ['Take less curb at Turn 2.', 'Box this lap.', 'Safety car deployed.', 'Blue flag.']
+const engineerSamples = ['Take less curb at Turn 2.', 'Box this lap.', 'Safety car deployed.', 'Blue flag.', 'Take less curb at Turn 4 and use boost on the exit.']
+
+// ─── Local fallback helpers ───────────────────────────────────────────────────
+
+/**
+ * Extract the top 2–3 most meaningful words from raw speech,
+ * stripping stop-words. Used when no pattern matches.
+ */
+const STOP_WORDS = new Set([
+  'a','an','the','i','we','you','they','he','she','it','my','your','our','their','its',
+  'is','am','are','was','were','be','been','being','have','has','had','do','does','did',
+  'will','would','could','should','may','might','must','shall','can',
+  'and','but','or','so','yet','for','nor','on','in','at','by','to','of','up',
+  'this','that','these','those','what','just','ok','okay','um','uh','like','yeah','yep','no','yes',
+  'with','about','from','into','then','than','also','very','quite',
+])
+
+function smartExtractKeywords(transcript) {
+  if (!transcript?.trim()) return ['CHECK RADIO']
+  const words = transcript
+    .toUpperCase()
+    .replace(/[^A-Z0-9\s]/g, '')
+    .split(/\s+/)
+    .filter((w) => w.length >= 1 && !STOP_WORDS.has(w.toLowerCase()))
+  const unique = [...new Set(words)]
+  if (unique.length === 0) return ['CHECK RADIO']
+  
+  // If 3 words or fewer, keep them all on one screen
+  if (unique.length <= 3) {
+    return [unique.join(' ')]
+  }
+  // If exactly 4 words, split evenly into two screens of 2 words
+  if (unique.length === 4) {
+    return [unique.slice(0, 2).join(' '), unique.slice(2, 4).join(' ')]
+  }
+  
+  // For 5+ words, chunk into groups of 3
+  const labels = []
+  for (let i = 0; i < unique.length; i += 3) {
+    labels.push(unique.slice(i, i + 3).join(' '))
+  }
+  return labels.slice(0, 3) // Max 3 screens to keep it brief
+}
 
 function extractTurn(message) {
-  const number = message.match(/turn\s*(\d{1,2})/i)?.[1]
-  return number ? `T${number}` : ''
+  // Handle spelled out numbers and common mishearings (like "to" -> 2)
+  const map = {
+    one: '1', two: '2', to: '2', too: '2',
+    three: '3', tree: '3', four: '4', for: '4',
+    five: '5', six: '6', seven: '7', eight: '8', ate: '8',
+    nine: '9', ten: '10', eleven: '11', twelve: '12'
+  }
+  const match = message.match(/turn\s*(\d{1,2}|one|two|to|too|three|tree|four|for|five|six|seven|eight|ate|nine|ten|eleven|twelve)/i)
+  if (!match) return ''
+  let val = match[1].toLowerCase()
+  return `T${map[val] || val}`
 }
 
 function analyseDriverMessage(message) {
   const text = message.toLowerCase()
   const turn = extractTurn(message)
-  if (/rear|slid|throttle|traction/.test(text)) return { state: 'FRUSTRATED', issue: 'REAR SLIP', keyword: `REAR SLIP${turn ? ` ${turn}` : ''}`, confidence: '92%' }
-  if (/front|tyre|tire|understeer/.test(text)) return { state: 'ELEVATED', issue: 'FRONT GRIP', keyword: `FRONT GRIP${turn ? ` ${turn}` : ''}`, confidence: '88%' }
-  if (/hear|radio|mic|microphone/.test(text)) return { state: 'URGENT', issue: 'RADIO FAILURE', keyword: 'RADIO FAIL', confidence: '96%' }
-  if (/safety car/.test(text)) return { state: 'FOCUSED', issue: 'RACE CONTROL', keyword: 'SAFETY CAR', confidence: '97%' }
-  if (/box|pit/.test(text)) return { state: 'FOCUSED', issue: 'PIT REQUEST', keyword: 'BOX', confidence: '94%' }
-  return { state: 'REVIEW', issue: 'UNCLASSIFIED', keyword: 'REVIEW RADIO', confidence: '54%' }
+
+  // Extended cuss/frustration word list covering common speech
+  const CUSS = [
+    'shit', 'damn', 'crap', 'hell', 'fuck', 'bloody', 'bastard', 'rubbish',
+    'ridiculous', 'useless', 'idiot', 'stupid', 'terrible', 'horrible',
+    'awful', 'pathetic', 'garbage', 'trash', 'dammit', 'bollocks', 'crap',
+    'screw', 'sucks', 'hate', 'worst', 'disaster', 'unbelievable', 'insane',
+  ]
+  
+  // Browser SpeechRecognition automatically censors profanity with asterisks (e.g., ****)
+  const censoredCount = (message.match(/\*{3,}/g) || []).length
+  const rawCussCount = CUSS.filter((w) => text.includes(w)).length
+  const cussCount = rawCussCount + censoredCount
+
+  // Frustration phrases (negative statements even without cuss words)
+  const frustrated = /can't|cannot|won't|not working|no grip|no traction|losing|sliding|oversteering|understeering|too (slow|fast|wide|tight)|going (wide|off|off-track)|missing|struggling|problem|issue|wrong|bad|worse|losing it/i.test(text)
+
+  let state = 'CALM'
+  if (cussCount >= 2) state = 'ANGRY'
+  else if (cussCount >= 1) state = 'ANGRY'
+  else if (frustrated) state = 'FRUSTRATED'
+  else if (/rear|slid|throttle|traction|snap/.test(text)) state = 'FRUSTRATED'
+
+  if (/rear|slid|throttle|traction|snap|oversteer/.test(text)) return { state, issue: 'REAR SLIP', keyword: `REAR SLIP${turn ? ` ${turn}` : ''}`, confidence: '92%' }
+  if (/front|tyre|tire|understeer|grip/.test(text)) return { state, issue: 'FRONT GRIP', keyword: `FRONT GRIP${turn ? ` ${turn}` : ''}`, confidence: '88%' }
+  if (/hear|radio|mic|microphone|signal|static/.test(text)) return { state: 'URGENT', issue: 'RADIO FAILURE', keyword: 'RADIO FAIL', confidence: '96%' }
+  if (/safety car|vsc|yellow/.test(text)) return { state: 'FOCUSED', issue: 'RACE CONTROL', keyword: 'SAFETY CAR', confidence: '97%' }
+  if (/box|pit|stop|come in/.test(text)) return { state: 'FOCUSED', issue: 'PIT REQUEST', keyword: 'BOX', confidence: '94%' }
+  if (/brake|braking|lock/.test(text)) return { state, issue: 'BRAKING', keyword: `BRAKES${turn ? ` ${turn}` : ''}`, confidence: '85%' }
+  if (/engine|power|deploy|ers|mgu|motor/.test(text)) return { state, issue: 'POWER UNIT', keyword: 'ENGINE ISSUE', confidence: '83%' }
+  // If cuss words detected but no specific issue, it's an ANGRY/FRUSTRATED unclassified
+  if (cussCount >= 1) return { state, issue: 'GENERAL COMPLAINT', keyword: 'DRIVER UNHAPPY', confidence: '70%' }
+  return { state, issue: 'UNCLASSIFIED', keyword: 'REVIEW RADIO', confidence: '54%' }
 }
 
-function compressEngineerMessage(message) {
+function extractEngineerKeywordsLocal(message) {
+  if (!message || !message.trim()) return []
   const text = message.toLowerCase()
   const turn = extractTurn(message)
-  if (/less curb/.test(text)) return `LESS CURB${turn ? ` ${turn}` : ''}`
-  if (/safety car/.test(text)) return 'SAFETY CAR'
-  if (/blue flag/.test(text)) return 'BLUE FLAG'
-  if (/box|pit/.test(text)) return 'BOX THIS LAP'
-  return 'CHECK RADIO'
+  const keywords = []
+  // Curb/apex/line instructions
+  if (/less curb|less kerb|cut the apex|apex/.test(text)) keywords.push(`LESS CURB${turn ? ` ${turn}` : ''}`)
+  if (/more curb|more kerb|use the curb/.test(text)) keywords.push(`USE CURB${turn ? ` ${turn}` : ''}`)
+  // Throttle / deployment
+  if (/\bboost\b|deploy|throttle up|full power|kers/.test(text)) keywords.push(`BOOST EXIT${turn ? ` ${turn}` : ''}`)
+  if (/lift and coast|lift and\s|save fuel|manage fuel/.test(text)) keywords.push('SAVE FUEL')
+  // Racing line
+  if (/wide|run wide|go wide/.test(text)) keywords.push(`WIDE${turn ? ` ${turn}` : ''}`)
+  if (/\btight\b|inside|inside line/.test(text)) keywords.push(`TIGHT${turn ? ` ${turn}` : ''}`)
+  // Push / hold
+  if (/push hard|push now|attack|go go go/.test(text)) keywords.push('PUSH NOW')
+  if (/hold position|stay behind|stay out/.test(text)) keywords.push('HOLD POSITION')
+  if (/delta|hold pace|maintain|manage gap/.test(text)) keywords.push('HOLD DELTA')
+  // Strategy
+  if (/plan\s+([a-z])/i.test(text)) {
+    keywords.push(`PLAN ${text.match(/plan\s+([a-z])/i)[1].toUpperCase()}`)
+  }
+  // Tyres
+  if (/manage tyre|tyre care|save tyre|look after/.test(text)) keywords.push('MANAGE TYRES')
+  // Race control
+  if (/safety car/.test(text)) keywords.push('SAFETY CAR')
+  if (/blue flag/.test(text)) keywords.push('BLUE FLAG')
+  if (/box|pit stop|come in/.test(text)) keywords.push('BOX THIS LAP')
+  // Braking
+  if (/brake later|brake early|trail brake/.test(text)) keywords.push(`BRAKE${turn ? ` ${turn}` : ''}`)
+  // ERS / Battery
+  if (/battery|ers mode|engine mode/.test(text)) keywords.push('ERS MODE')
+  return keywords.length > 0 ? keywords : []
 }
 
 function confidenceLabel(value) {
@@ -218,26 +731,111 @@ function confidenceLabel(value) {
   return `${Math.round(numeric <= 1 ? numeric * 100 : numeric)}%`
 }
 
-async function requestRadioAnalysis(path, message, team) {
-  const response = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message, team: team.name }) })
+// ─── API helpers ──────────────────────────────────────────────────────────────
+
+async function requestRadioAnalysis(path, message, team, audioFeatures) {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ message, team: team.name, audioFeatures: audioFeatures || undefined }),
+  })
   if (!response.ok) throw new Error('Radio analysis service unavailable')
   return response.json()
 }
+
+async function requestTranscription(audioBlob, direction, team) {
+  const url = `/api/transcribe/${direction}?team=${encodeURIComponent(team.name)}`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': audioBlob.type || 'audio/webm' },
+    body: audioBlob,
+  })
+  if (!response.ok) throw new Error('Transcription service unavailable')
+  return response.json()
+}
+
+// ─── Mic button component ─────────────────────────────────────────────────────
+
+function MicButton({ onResult, onTranscribing, disabled }) {
+  const { recording, error, start, stop } = useVoiceRecorder()
+  const [phase, setPhase] = useState('idle') // idle | recording | processing
+
+  const handleMouseDown = async () => {
+    if (disabled || phase !== 'idle') return
+    setPhase('recording')
+    await start()
+  }
+
+  const handleMouseUp = async () => {
+    if (phase !== 'recording') return
+    setPhase('processing')
+    const result = await stop()
+    if (result) {
+      onTranscribing?.(true)
+      onResult?.(result)
+    }
+    setPhase('idle')
+    onTranscribing?.(false)
+  }
+
+  // Keyboard support: hold space
+  const handleKeyDown = (e) => { if (e.key === ' ' && phase === 'idle') { e.preventDefault(); handleMouseDown() } }
+  const handleKeyUp = (e) => { if (e.key === ' ' && phase === 'recording') { e.preventDefault(); handleMouseUp() } }
+
+  return (
+    <div className="mic-control">
+      <button
+        id="mic-record-btn"
+        className={`mic-button mic-${phase}`}
+        onMouseDown={handleMouseDown}
+        onMouseUp={handleMouseUp}
+        onTouchStart={(e) => { e.preventDefault(); handleMouseDown() }}
+        onTouchEnd={(e) => { e.preventDefault(); handleMouseUp() }}
+        onKeyDown={handleKeyDown}
+        onKeyUp={handleKeyUp}
+        disabled={disabled || phase === 'processing'}
+        aria-label={phase === 'recording' ? 'Release to send' : 'Hold to speak'}
+      >
+        {phase === 'recording' ? <Square size={14} /> : <Mic size={14} />}
+        <span>
+          {phase === 'recording' ? 'RELEASE TO SEND' : phase === 'processing' ? 'PROCESSING…' : 'HOLD TO SPEAK'}
+        </span>
+      </button>
+      {error && <p className="mic-error">{error}</p>}
+    </div>
+  )
+}
+
+// ─── Radio Desk ───────────────────────────────────────────────────────────────
 
 function RadioDesk({ team, onBack }) {
   const [driverMessage, setDriverMessage] = useState(driverSamples[0])
   const [engineerMessage, setEngineerMessage] = useState(engineerSamples[0])
   const [driverAnalysis, setDriverAnalysis] = useState(() => analyseDriverMessage(driverSamples[0]))
-  const [driverDisplay, setDriverDisplay] = useState(() => compressEngineerMessage(engineerSamples[0]))
+  const [driverDisplay, setDriverDisplay] = useState(() => extractEngineerKeywordsLocal(engineerSamples[0]))
   const [driverProvider, setDriverProvider] = useState('local demo rules')
   const [engineerProvider, setEngineerProvider] = useState('local demo rules')
   const [analysingDriver, setAnalysingDriver] = useState(false)
   const [analysingEngineer, setAnalysingEngineer] = useState(false)
 
+  // Steering wheel keyword sequence
+  const [wheelKeywords, setWheelKeywords] = useState([])
+  const [showWheelKeywords, setShowWheelKeywords] = useState(false)
+
+  // Trigger the steering wheel keyword animation
+  const triggerWheelDisplay = useCallback((keywords) => {
+    setWheelKeywords(keywords)
+    setShowWheelKeywords(false)
+    setTimeout(() => setShowWheelKeywords(true), 80)
+    // After all keywords have played (keywords.length × 3s), reset
+    setTimeout(() => setShowWheelKeywords(false), keywords.length * 3000 + 200)
+  }, [])
+
+  // ── Driver: text send ──
   const sendDriverMessage = async () => {
     setAnalysingDriver(true)
     try {
-      const result = await requestRadioAnalysis('/api/analyse/driver', driverMessage, team)
+      const result = await requestRadioAnalysis('/api/analyse/driver', driverMessage, team, null)
       setDriverAnalysis(result)
       setDriverProvider(result.provider || 'radio analysis service')
     } catch {
@@ -248,33 +846,152 @@ function RadioDesk({ team, onBack }) {
     }
   }
 
+  // ── Driver: voice send ──
+  const sendDriverVoice = async ({ blob, audioFeatures }) => {
+    setAnalysingDriver(true)
+    try {
+      // Try server-side Whisper transcription + analysis
+      const result = await requestTranscription(blob, 'driver', team)
+      if (result.transcription) setDriverMessage(result.transcription)
+      setDriverAnalysis(result)
+      setDriverProvider(result.provider || 'whisper + analysis')
+    } catch {
+      // Fallback: analyse text already in textarea using client-side audio features
+      const result = await requestRadioAnalysis('/api/analyse/driver', driverMessage, team, audioFeatures).catch(() => null)
+      if (result) {
+        setDriverAnalysis(result)
+        setDriverProvider(result.provider || 'local fallback')
+      } else {
+        const fallback = analyseDriverMessage(driverMessage)
+        // Apply audio-based mood override
+        if (audioFeatures?.rms > 0.18) fallback.state = 'ANGRY'
+        else if (audioFeatures?.rms > 0.08) fallback.state = 'FRUSTRATED'
+        setDriverAnalysis(fallback)
+        setDriverProvider('local fallback (no whisper)')
+      }
+    } finally {
+      setAnalysingDriver(false)
+    }
+  }
+
+  // ── Engineer: text send ──
   const sendEngineerMessage = async () => {
     setAnalysingEngineer(true)
     try {
-      const result = await requestRadioAnalysis('/api/analyse/engineer', engineerMessage, team)
-      setDriverDisplay(result.keyword || compressEngineerMessage(engineerMessage))
+      const result = await requestRadioAnalysis('/api/analyse/engineer', engineerMessage, team, null)
+      const keywords = result.keywords?.length > 0 ? result.keywords : [result.keyword || 'CHECK RADIO']
+      setDriverDisplay(keywords)
       setEngineerProvider(result.provider || 'radio analysis service')
+      triggerWheelDisplay(keywords)
     } catch {
-      setDriverDisplay(compressEngineerMessage(engineerMessage))
+      const keywords = extractEngineerKeywordsLocal(engineerMessage)
+      setDriverDisplay(keywords)
       setEngineerProvider('local demo fallback')
+      triggerWheelDisplay(keywords)
     } finally {
       setAnalysingEngineer(false)
     }
   }
 
+  // ── Engineer: voice send ──
+  const sendEngineerVoice = async ({ blob }) => {
+    setAnalysingEngineer(true)
+    try {
+      const result = await requestTranscription(blob, 'engineer', team)
+      if (result.transcription) setEngineerMessage(result.transcription)
+      const keywords = result.keywords?.length > 0 ? result.keywords : [result.keyword || 'CHECK RADIO']
+      setDriverDisplay(keywords)
+      setEngineerProvider(result.provider || 'whisper + analysis')
+      triggerWheelDisplay(keywords)
+    } catch {
+      const keywords = extractEngineerKeywordsLocal(engineerMessage)
+      setDriverDisplay(keywords)
+      setEngineerProvider('local fallback (no whisper)')
+      triggerWheelDisplay(keywords)
+    } finally {
+      setAnalysingEngineer(false)
+    }
+  }
+
+  const mood = driverAnalysis?.mood || driverAnalysis?.state || 'CALM'
+
   return <section className="radio-desk-page">
     <StepHeader step={3} title={`${team.name.toUpperCase()} / RADIO DESK`} onBack={onBack} />
     <div className="desk-wrap">
-      <div className="desk-intro"><button className="back-link" onClick={onBack}><ArrowLeft size={15} /> BACK TO COCKPIT LINK</button><div className="soft-label"><span /> COMMUNICATION LOOP</div><h1>Say it.<br /><em>Understand it.</em></h1><p>Choose a known radio call or type your own message. The API retrieves F1 examples first, then sends uncertain messages to the Hugging Face classifier.</p></div>
+      <div className="desk-intro">
+        <button className="back-link" onClick={onBack}><ArrowLeft size={15} /> BACK TO COCKPIT LINK</button>
+        <div className="soft-label"><span /> COMMUNICATION LOOP</div>
+        <h1>Say it.<br /><em>Understand it.</em></h1>
+        <p>Hold the mic button and speak, or type and send. The AI transcribes your voice, extracts key issues, and routes them instantly.</p>
+      </div>
+
       <div className="radio-flow">
-        <section className="message-panel"><div className="panel-title"><Mic size={15} /> DRIVER RADIO <span>01</span></div><select value={driverMessage} onChange={(event) => setDriverMessage(event.target.value)}><option value="">Select a demonstration message</option>{driverSamples.map((sample) => <option key={sample} value={sample}>{sample}</option>)}</select><textarea value={driverMessage} onChange={(event) => setDriverMessage(event.target.value)} aria-label="Driver radio message" /><button className="send-button" onClick={sendDriverMessage} disabled={analysingDriver}>{analysingDriver ? 'ANALYSING…' : 'SEND TO ENGINEER'} <Send size={14} /></button></section>
-        <section className="engineer-view"><span className="ai-label">AI INTERPRETATION</span><div><span>DRIVER STATE</span><b>{driverAnalysis.state}</b></div><div><span>ISSUE</span><b>{driverAnalysis.issue}</b></div><div><span>KEYWORD</span><strong>{driverAnalysis.keyword}</strong></div><p>“{driverMessage}”</p><small>CONFIDENCE {confidenceLabel(driverAnalysis.confidence)} / {driverProvider}</small></section>
-        <section className="message-panel"><div className="panel-title"><Volume2 size={15} /> ENGINEER RADIO <span>02</span></div><select value={engineerMessage} onChange={(event) => setEngineerMessage(event.target.value)}><option value="">Select a demonstration message</option>{engineerSamples.map((sample) => <option key={sample} value={sample}>{sample}</option>)}</select><textarea value={engineerMessage} onChange={(event) => setEngineerMessage(event.target.value)} aria-label="Engineer radio message" /><button className="send-button" onClick={sendEngineerMessage} disabled={analysingEngineer}>{analysingEngineer ? 'COMPRESSING…' : 'SEND TO DRIVER'} <Send size={14} /></button></section>
-        <section className="driver-display"><span>DRIVER DISPLAY / APPROVED MESSAGE</span><b>{driverDisplay}</b><small>WHITE COMMUNICATION MODE / {engineerProvider}</small></section>
+        {/* ── Driver panel ── */}
+        <section className="message-panel" id="driver-panel">
+          <div className="panel-title"><Mic size={15} /> DRIVER RADIO <span>01</span></div>
+          <select value={driverMessage} onChange={(e) => setDriverMessage(e.target.value)}>
+            <option value="">Select a demonstration message</option>
+            {driverSamples.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <textarea value={driverMessage} onChange={(e) => setDriverMessage(e.target.value)} aria-label="Driver radio message" />
+          <MicButton onResult={sendDriverVoice} disabled={analysingDriver} />
+          <button className="send-button" onClick={sendDriverMessage} disabled={analysingDriver}>
+            {analysingDriver ? 'ANALYSING…' : 'SEND TO ENGINEER'} <Send size={14} />
+          </button>
+        </section>
+
+        {/* ── Engineer AI view ── */}
+        <section className="engineer-view" id="engineer-ai-view">
+          <span className="ai-label">AI INTERPRETATION</span>
+          <div>
+            <span>DRIVER MOOD</span>
+            <b id="driver-mood-display" style={{ color: moodColor(mood) }}>{MOOD_LABEL[mood] || mood}</b>
+          </div>
+          <div>
+            <span>ISSUE</span>
+            <b>{driverAnalysis.issue}</b>
+          </div>
+          <div>
+            <span>KEYWORD</span>
+            <strong>{driverAnalysis.keyword}</strong>
+          </div>
+          <p>"{driverMessage}"</p>
+          <small>CONFIDENCE {confidenceLabel(driverAnalysis.confidence)} / {driverProvider}</small>
+        </section>
+
+        {/* ── Engineer panel ── */}
+        <section className="message-panel" id="engineer-panel">
+          <div className="panel-title"><Volume2 size={15} /> ENGINEER RADIO <span>02</span></div>
+          <select value={engineerMessage} onChange={(e) => setEngineerMessage(e.target.value)}>
+            <option value="">Select a demonstration message</option>
+            {engineerSamples.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <textarea value={engineerMessage} onChange={(e) => setEngineerMessage(e.target.value)} aria-label="Engineer radio message" />
+          <MicButton onResult={sendEngineerVoice} disabled={analysingEngineer} />
+          <button className="send-button" onClick={sendEngineerMessage} disabled={analysingEngineer}>
+            {analysingEngineer ? 'COMPRESSING…' : 'SEND TO DRIVER'} <Send size={14} />
+          </button>
+        </section>
+
+        {/* ── Driver steering wheel display ── */}
+        <section className="driver-display" id="driver-wheel-display" data-active={showWheelKeywords ? 'true' : undefined}>
+          <span>DRIVER DISPLAY / APPROVED MESSAGE</span>
+          <div className="driver-display-wheel">
+            <F1Wheel team={team} mode="engineer" setMode={() => {}} keywords={wheelKeywords} showKeywords={showWheelKeywords} />
+          </div>
+          <div className="driver-kw-list">
+            {driverDisplay.map((kw, i) => (
+              <b key={i} className={showWheelKeywords && wheelKeywords[i] ? 'kw-active' : ''}>{kw}</b>
+            ))}
+          </div>
+          <small>WHITE COMMS MODE / {engineerProvider}</small>
+        </section>
       </div>
     </div>
   </section>
 }
+
+// ─── Animated stat ─────────────────────────────────────────────────────────────
 
 function AnimatedStat({ value }) {
   const match = String(value).match(/^(\D*)(\d+)(.*)$/)
@@ -284,10 +1001,7 @@ function AnimatedStat({ value }) {
   const [display, setDisplay] = useState(Number.isFinite(numeric) ? 0 : value)
 
   useEffect(() => {
-    if (!Number.isFinite(numeric)) {
-      setDisplay(value)
-      return undefined
-    }
+    if (!Number.isFinite(numeric)) { setDisplay(value); return undefined }
     let frame
     const started = window.performance.now()
     const tick = (now) => {
@@ -303,6 +1017,8 @@ function AnimatedStat({ value }) {
   return <b>{Number.isFinite(numeric) ? `${prefix}${display}${suffix}` : display}</b>
 }
 
+// ─── App ──────────────────────────────────────────────────────────────────────
+
 function App() {
   const [page, setPage] = useState('welcome')
   const [activeTeam, setActiveTeam] = useState(null)
@@ -317,10 +1033,7 @@ function App() {
   }
   const stopRadioAudio = () => {
     const audio = audioRef.current
-    if (audio) {
-      audio.pause()
-      audio.currentTime = 0
-    }
+    if (audio) { audio.pause(); audio.currentTime = 0 }
     setRadioAudioActive(false)
   }
   const goTo = (nextPage) => {
@@ -348,7 +1061,7 @@ function App() {
       <div className="welcome-copy">
         <div className="soft-label"><span /> F1 COMMUNICATION INTELLIGENCE</div>
         <h1>Welcome to<br /><em>the pit wall.</em></h1>
-        <p>Welcome to your quiet teammate on the pit wall. Before the noise starts, let’s set up your race context.</p>
+        <p>Welcome to your quiet teammate on the pit wall. Before the noise starts, let's set up your race context.</p>
         <button className="primary-action" onClick={() => goTo('teams')}>CHOOSE YOUR TEAM <ArrowUpRight size={17} /></button>
       </div>
       <div className="welcome-footer"><span><i /> SECURE RACE SESSION</span><span>THE SILENT CO-DRIVER / 01</span></div>
@@ -356,7 +1069,7 @@ function App() {
 
     {page === 'teams' && <section className="teams-page">
       <StepHeader step={2} onBack={() => setPage('welcome')} />
-      <div className="selection-intro"><div className="soft-label"><span /> RACE CONTEXT</div><h1>Choose your<br /><em>team.</em></h1><p>We’ll load a focused season briefing before opening the radio desk.</p></div>
+      <div className="selection-intro"><div className="soft-label"><span /> RACE CONTEXT</div><h1>Choose your<br /><em>team.</em></h1><p>We'll load a focused season briefing before opening the radio desk.</p></div>
       <div className="team-selector">
         {teams.map((team, index) => <button key={team.id} className="team-choice" style={{ '--card': team.color, '--cardAccent': team.accent }} onClick={() => selectTeam(team)}>
           <img src={team.image} alt="" /> <span className="photo-shade" />
@@ -397,7 +1110,6 @@ function App() {
     </section>}
 
     {page === 'cockpit' && selected && <CockpitLink team={selected} onBack={() => goTo('teams')} onStart={() => goTo('radio')} />}
-
     {page === 'radio' && selected && <RadioDesk team={selected} onBack={() => goTo('cockpit')} />}
   </main>
 }

@@ -1,3 +1,214 @@
+/* ── Mic button (hold to speak) ─────────────────────────────────── */
+.mic-control {
+  margin-top: 7px;
+  margin-bottom: 1px;
+}
+
+.mic-button {
+  width: 100%;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid rgba(231, 255, 247, .3);
+  background: rgba(12, 22, 24, .9);
+  color: #c4dcd5;
+  cursor: pointer;
+  font: 700 9px 'DM Mono', monospace;
+  letter-spacing: .08em;
+  transition: background .15s, border-color .15s, box-shadow .15s, color .15s;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.mic-button:hover {
+  border-color: var(--team);
+  color: var(--team);
+}
+
+.mic-button.mic-recording {
+  background: color-mix(in srgb, var(--team) 20%, #060c0b);
+  border-color: var(--team);
+  color: var(--team);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--team) 18%, transparent), 0 0 22px color-mix(in srgb, var(--team) 28%, transparent);
+  animation: micPulse .8s ease-in-out infinite;
+}
+
+.mic-button.mic-processing {
+  opacity: .55;
+  cursor: wait;
+}
+
+.mic-error {
+  margin: 4px 0 0;
+  color: #ff5a5a;
+  font: 8px 'DM Mono', monospace;
+  letter-spacing: .06em;
+}
+
+@keyframes micPulse {
+  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--team) 18%, transparent); }
+  50%       { box-shadow: 0 0 0 7px color-mix(in srgb, var(--team) 8%, transparent), 0 0 28px color-mix(in srgb, var(--team) 32%, transparent); }
+}
+
+/* ── Driver mood display ──────────────────────────────────────────── */
+#driver-mood-display {
+  font-size: 15px;
+  transition: color .4s;
+}
+
+/* ── Engineer → Driver display panel (now houses a mini wheel) ────── */
+.driver-display {
+  flex-direction: column;
+  align-items: center;
+  padding: 14px 10px 16px;
+  transition: background .35s;
+}
+
+.driver-display[data-active='true'] {
+  background: #ffffff;
+}
+
+.driver-display-wheel {
+  width: 100%;
+  max-width: 320px;
+  margin: 8px 0 6px;
+}
+
+.driver-display-wheel svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* ── Keyword list under the wheel ─────────────────────────────────── */
+.driver-kw-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin: 6px 0 8px;
+}
+
+.driver-kw-list b {
+  padding: 4px 10px;
+  border: 1px solid rgba(7, 17, 14, .25);
+  background: rgba(7, 17, 14, .06);
+  color: #07110e;
+  font: 700 clamp(11px, 1.4vw, 15px)/.9 'Space Grotesk', sans-serif;
+  letter-spacing: -.04em;
+  transition: background .3s, border-color .3s, color .3s;
+  opacity: .5;
+}
+
+.driver-kw-list b.kw-active {
+  background: #07110e;
+  border-color: #07110e;
+  color: #ffffff;
+  opacity: 1;
+}
+
+/* Wheel screen keyword text flash animation */
+.wheel-kw-text {
+  animation: kwFlashIn .28s cubic-bezier(.2,.8,.2,1) both;
+}
+
+@keyframes kwFlashIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Cockpit transcript side panels ───────────────────────────────── */
+.cockpit-transcript {
+  position: absolute;
+  z-index: 5;
+  top: 28%;
+  width: min(230px, 18vw);
+  padding: 14px 15px;
+  border: 1px solid rgba(168, 255, 231, .28);
+  background: rgba(4, 10, 10, .88);
+  box-shadow: 0 14px 44px rgba(0,0,0,.35), inset 0 1px 0 rgba(218,255,244,.08);
+  transition: opacity .25s, transform .25s;
+}
+
+.cockpit-transcript-left {
+  left: max(32px, calc((100vw - 1100px) / 2));
+}
+
+.cockpit-transcript-right {
+  right: max(32px, calc((100vw - 1100px) / 2));
+}
+
+.ct-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 9px;
+  color: var(--team);
+  font: 500 8px 'DM Mono', monospace;
+  letter-spacing: .14em;
+}
+
+.ct-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--team);
+  box-shadow: 0 0 8px var(--team);
+  animation: radioPulse 1.6s infinite;
+  flex-shrink: 0;
+}
+
+.ct-text, .ct-idle, .ct-processing {
+  margin: 0 0 8px;
+  font: 10px/1.5 'DM Mono', monospace;
+  letter-spacing: -.01em;
+}
+
+.ct-text { color: #d4e8e2; }
+.ct-idle { color: #5a706a; font-style: italic; }
+.ct-processing { color: var(--team); animation: ctBlink .9s infinite; }
+
+@keyframes ctBlink { 50% { opacity: .35; } }
+
+.ct-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.ct-kw {
+  padding: 3px 7px;
+  background: var(--team);
+  color: #06100e;
+  font: 700 8px 'DM Mono', monospace;
+  letter-spacing: .06em;
+}
+
+.ct-mood {
+  margin-top: 8px;
+  font: 700 11px 'Space Grotesk', sans-serif;
+  letter-spacing: -.03em;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ct-issue {
+  display: block;
+  color: #c4d8d2;
+  font: 9px 'DM Mono', monospace;
+  letter-spacing: .06em;
+}
+
+@media (max-width: 900px) {
+  .cockpit-transcript { display: none; }
+}
+
+/* ── live-radio-card position ─────────────────────────────────────── */
 .live-radio-card {
   left: calc(50% + min(285px, 22vw));
 }
