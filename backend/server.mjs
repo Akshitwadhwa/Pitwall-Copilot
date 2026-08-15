@@ -183,7 +183,7 @@ async function readRawBody(request) {
 
 // ─── Server ───────────────────────────────────────────────────────────────────
 
-const server = http.createServer(async (request, response) => {
+export async function handler(request, response) {
   if (request.method === 'OPTIONS') return json(response, 204, {})
 
   // GET /api/health
@@ -266,6 +266,12 @@ const server = http.createServer(async (request, response) => {
   }
 
   return json(response, 404, { error: 'not found' })
-})
+}
 
-server.listen(PORT, () => console.log(`Pitwall API listening on http://localhost:${PORT}`))
+// Vercel imports the default handler. Keep the local Node server for development.
+export default handler
+
+if (!process.env.VERCEL) {
+  const server = http.createServer(handler)
+  server.listen(PORT, () => console.log(`Pitwall API listening on http://localhost:${PORT}`))
+}
