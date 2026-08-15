@@ -4,6 +4,7 @@ import haasCar from './assets/haas-f1.jpeg'
 import audiCar from './assets/audi-f1.jpg'
 import mclarenCar from './assets/mclaren-mcl38.jpg'
 import openingVideo from './assets/f1-opening-background.mp4'
+import monacoLapRecord from './assets/MONACO LAP RECORD Lando Norris Pole Lap  2025 Monaco Grand Prix  Pirelli.mp4'
 import radioSound from './assets/F1 Radio - Sound effect (HD).mp3'
 import haasDriverOne from './assets/haas-driver-1.jpeg'
 import haasDriverTwo from './assets/haas-driver-2.webp'
@@ -50,6 +51,8 @@ const teams = [
   {
     id: 'mclaren',
     name: 'McLaren', code: 'MCL', color: '#ff8000', accent: '#8cebdd', wheelBody: '#17191b', wheelTrim: '#8cebdd',
+    // Local footage keeps the cockpit background reliable in production.
+    controllerVideo: monacoLapRecord,
     image: mclarenCar,
     drivers: [
       { name: 'Lando Norris', number: '4', image: mclarenDriverOne, profile: 'DIRECT / PRECISION' },
@@ -585,8 +588,23 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
         <p>Hold <strong>ENGINEER RADIO</strong> or <strong>DRIVER RADIO</strong> on the wheel to speak. The AI will transcribe, classify, and relay your message.</p>
       </div>
 
-      {/* Steering wheel */}
+      {/* Steering wheel with optional team lap footage behind the controls */}
       <div className="sequence-wheel" style={wheelStyle}>
+        {team.controllerVideo && (
+          <div className="wheel-video-layer" aria-hidden="true">
+            <video
+              src={team.controllerVideo}
+              title={`${team.name} lap footage`}
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="auto"
+              tabIndex="-1"
+            />
+            <span />
+          </div>
+        )}
         <F1Wheel
           team={team}
           keywords={wheelKeywords}

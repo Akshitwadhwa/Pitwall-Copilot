@@ -895,12 +895,53 @@
 .sequence-wheel {
   position: absolute;
   z-index: 2;
+  isolation: isolate;
   top: 48%;
   left: 50%;
   width: min(1080px, 100vw);
   transform-origin: center;
   will-change: transform;
   transition: transform .2s ease-out;
+}
+
+/* Team lap footage sits behind the wheel as a very low-contrast cockpit texture. */
+.wheel-video-layer {
+  position: absolute;
+  z-index: 0;
+  inset: 8% 11% 10%;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--team) 28%, transparent);
+  border-radius: 22% 22% 18% 18%;
+  background: #050708;
+  opacity: .38;
+  pointer-events: none;
+  box-shadow: 0 0 70px color-mix(in srgb, var(--team) 18%, transparent);
+}
+
+.sequence-wheel > .vector-wheel {
+  position: relative;
+  z-index: 2;
+}
+
+.wheel-video-layer video,
+.wheel-video-layer iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  transform: scale(1.22);
+  filter: saturate(.72) contrast(1.18) brightness(.56);
+  pointer-events: none;
+}
+
+.wheel-video-layer span {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at center, transparent 28%, rgba(3, 7, 8, .48) 78%),
+    linear-gradient(180deg, color-mix(in srgb, var(--team) 10%, transparent), rgba(3, 7, 8, .64));
+  mix-blend-mode: multiply;
 }
 
 .sequence-wheel::before {
