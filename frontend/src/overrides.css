@@ -869,7 +869,9 @@
 .sequence-radio .live-radio-card { position: relative; top: auto; left: auto; width: 100%; transform: none; }
 .sequence-radio .live-radio-card[role="button"] { cursor: pointer; transition: border-color .2s, box-shadow .2s, transform .2s; }
 .sequence-radio .live-radio-card[role="button"]:hover { border-color: var(--team); box-shadow: 0 18px 55px rgba(0,0,0,.45), 0 0 24px color-mix(in srgb, var(--team) 22%, transparent); transform: translateY(-3px); }
-.scroll-marker { position: absolute; z-index: 4; bottom: 35px; left: 50%; transform: translateX(-50%); color: #9ab5ac; font: 9px 'DM Mono', monospace; letter-spacing: .2em; }.scroll-marker span { display: block; margin-top: 7px; color: var(--team); text-align: center; font-size: 15px; animation: downPulse 1.4s infinite; }
+.scroll-marker { position: absolute; z-index: 4; bottom: 35px; left: 50%; transform: translateX(-50%); color: #b5d0c7; font: 15px 'DM Mono', monospace; letter-spacing: .25em; text-shadow: 0 0 16px rgba(64, 212, 144, .22); }.scroll-marker span { display: block; margin-top: 10px; color: var(--team); text-align: center; font-size: 26px; line-height: 1; animation: downPulse 1.4s infinite; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--team) 35%, transparent)); }
+.wheel-hit.is-disabled { opacity: .42; filter: saturate(.35); }
+.wheel-hit.is-disabled rect { stroke-dasharray: 3 4; }
 
 @keyframes downPulse { 50% { transform: translateY(6px); opacity: .3; } }
 

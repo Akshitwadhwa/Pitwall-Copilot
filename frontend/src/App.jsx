@@ -7,6 +7,10 @@ import openingVideo from './assets/f1-opening-background.mp4'
 import radioSound from './assets/F1 Radio - Sound effect (HD).mp3'
 import haasDriverOne from './assets/haas-driver-1.jpeg'
 import haasDriverTwo from './assets/haas-driver-2.webp'
+import audiDriverOne from './assets/Audi-Driver-1.jpeg'
+import audiDriverTwo from './assets/Audi-Driver-2.jpeg'
+import mclarenDriverOne from './assets/mclaren-driver- 1.jpg.webp'
+import mclarenDriverTwo from './assets/mclaren-driver-2.jpg.webp'
 
 const teams = [
   {
@@ -30,6 +34,10 @@ const teams = [
     id: 'audi',
     name: 'Audi', code: 'AUD', color: '#f1192e', accent: '#e7e7e7',
     image: audiCar,
+    drivers: [
+      { name: 'Gabriel Bortoleto', number: '5', image: audiDriverOne, profile: 'PRECISION / CONTROL' },
+      { name: 'Nico Hulkenberg', number: '27', image: audiDriverTwo, profile: 'EXPERIENCE / FEEDBACK' },
+    ],
     position: 'P8', points: '12', podiums: '0', races: '11',
     summary: 'The team is collecting points in its first season under the Audi name, with the focus on extracting reliable feedback and making every radio message actionable.',
     signal: 'Prioritise radio quality checks and precise issue reporting from the driver.',
@@ -38,6 +46,10 @@ const teams = [
     id: 'mclaren',
     name: 'McLaren', code: 'MCL', color: '#ff8000', accent: '#8cebdd',
     image: mclarenCar,
+    drivers: [
+      { name: 'Lando Norris', number: '4', image: mclarenDriverOne, profile: 'DIRECT / PRECISION' },
+      { name: 'Oscar Piastri', number: '81', image: mclarenDriverTwo, profile: 'CALM / HIGH TEMPO' },
+    ],
     position: 'P3', points: '220', podiums: '3', races: '11',
     summary: 'A recovery after an uneven opening stretch. The team benefits from concise strategy confirmation during high-pressure calls.',
     signal: 'Focus the radio desk on clear confirmation when strategy decisions change quickly.',
@@ -224,7 +236,7 @@ function LiveRadioCard({ team, onOpen }) {
 // ─── F1 Wheel — hold-to-speak buttons ────────────────────────────────────────
 // Left button = ENGINEER RADIO, Right button = DRIVER RADIO (swapped per spec)
 
-function F1Wheel({ team, keywords, showKeywords, engineerRecording, driverRecording, onEngineerDown, onEngineerUp, onDriverDown, onDriverUp }) {
+function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, engineerRecording, driverRecording, onEngineerDown, onEngineerUp, onDriverDown, onDriverUp }) {
   const accent = team.color
   const secondary = team.accent
 
@@ -250,30 +262,32 @@ function F1Wheel({ team, keywords, showKeywords, engineerRecording, driverRecord
   // Render a hold-to-speak button as an SVG group
   const holdButton = (x, y, label, isRecording, onDown, onUp) => {
     const active = isRecording
+    const disabled = !controlsEnabled
     const fill = active ? accent : '#10181a'
     const stroke = active ? accent : '#5d746f'
     const textFill = active ? '#06100e' : '#d7eee7'
     return (
       <g
-        className={`wheel-hit ${active ? 'is-active wheel-mic-active' : ''}`}
+        className={`wheel-hit ${active ? 'is-active wheel-mic-active' : ''} ${disabled ? 'is-disabled' : ''}`}
         role="button"
-        tabIndex="0"
-        aria-label={isRecording ? `Release to send ${label}` : `Hold ${label} to speak`}
-        style={{ cursor: 'pointer' }}
-        onMouseDown={onDown}
-        onMouseUp={onUp}
-        onMouseLeave={onUp}
-        onTouchStart={(e) => { e.preventDefault(); onDown() }}
-        onTouchEnd={(e) => { e.preventDefault(); onUp() }}
-        onKeyDown={(e) => e.key === ' ' && onDown()}
-        onKeyUp={(e) => e.key === ' ' && onUp()}
+        tabIndex={disabled ? '-1' : '0'}
+        aria-disabled={disabled}
+        aria-label={disabled ? `${label} locked until wheel is engaged` : isRecording ? `Release to send ${label}` : `Hold ${label} to speak`}
+        style={{ cursor: disabled ? 'not-allowed' : 'pointer' }}
+        onMouseDown={() => !disabled && onDown()}
+        onMouseUp={() => !disabled && onUp()}
+        onMouseLeave={() => !disabled && onUp()}
+        onTouchStart={(e) => { if (!disabled) { e.preventDefault(); onDown() } }}
+        onTouchEnd={(e) => { if (!disabled) { e.preventDefault(); onUp() } }}
+        onKeyDown={(e) => !disabled && e.key === ' ' && onDown()}
+        onKeyUp={(e) => !disabled && e.key === ' ' && onUp()}
       >
         <rect x={x} y={y} width="112" height="42" rx="9" fill={fill} stroke={stroke} strokeWidth={active ? 3 : 2} />
         {active && <rect x={x} y={y} width="112" height="42" rx="9" fill="none" stroke={accent} strokeWidth="6" opacity=".3">
           <animate attributeName="opacity" values=".3;.8;.3" dur=".8s" repeatCount="indefinite" />
         </rect>}
         <text x={x + 56} y={y + 17} fill={textFill} textAnchor="middle" fontSize="10" fontFamily="DM Mono, monospace" letterSpacing="1">{label}</text>
-        <text x={x + 56} y={y + 32} fill={active ? '#06100e' : '#8da19a'} textAnchor="middle" fontSize="8" fontFamily="DM Mono, monospace" letterSpacing="1">{active ? '● REC' : 'HOLD TO SPEAK'}</text>
+        <text x={x + 56} y={y + 32} fill={active ? '#06100e' : '#8da19a'} textAnchor="middle" fontSize="8" fontFamily="DM Mono, monospace" letterSpacing="1">{active ? '● REC' : disabled ? 'LOCKED' : 'HOLD TO SPEAK'}</text>
       </g>
     )
   }
@@ -395,9 +409,9 @@ function CockpitLink({ team, onBack, onStart }) {
 
   // ── Engineer hold-to-speak ──
   const handleEngineerDown = useCallback(async () => {
-    if (engineerRecorder.recording || driverRecorder.recording) return
+    if (progress < 0.72 || engineerRecorder.recording || driverRecorder.recording) return
     await engineerRecorder.start()
-  }, [engineerRecorder, driverRecorder])
+  }, [engineerRecorder, driverRecorder, progress])
 
   const handleEngineerUp = useCallback(async () => {
     if (!engineerRecorder.recording) return
@@ -453,9 +467,9 @@ function CockpitLink({ team, onBack, onStart }) {
 
   // ── Driver hold-to-speak ──
   const handleDriverDown = useCallback(async () => {
-    if (driverRecorder.recording || engineerRecorder.recording) return
+    if (progress < 0.72 || driverRecorder.recording || engineerRecorder.recording) return
     await driverRecorder.start()
-  }, [driverRecorder, engineerRecorder])
+  }, [driverRecorder, engineerRecorder, progress])
 
   const handleDriverUp = useCallback(async () => {
     if (!driverRecorder.recording) return
@@ -515,6 +529,7 @@ function CockpitLink({ team, onBack, onStart }) {
   }, [driverRecorder, engineerRecorder, team, driverTranscript])
 
   const panelOpacity = Math.max(0, Math.min(1, (progress - .72) * 3.6))
+  const controlsEnabled = progress >= 0.72
   const introOpacity = Math.max(0, 1 - progress * 2.5)
   const wheelStyle = {
     transform: `translate(calc(-50% + ${pointer.x * 12}px), calc(-50% + ${progress * 95 + pointer.y * 6}px)) scale(${1.02 - progress * .14}) rotate(${progress * 1.2 + pointer.x * 1.1}deg)`,
@@ -542,6 +557,7 @@ function CockpitLink({ team, onBack, onStart }) {
           team={team}
           keywords={wheelKeywords}
           showKeywords={showWheelKeywords}
+          controlsEnabled={controlsEnabled}
           engineerRecording={engineerRecorder.recording}
           driverRecording={driverRecorder.recording}
           onEngineerDown={handleEngineerDown}
