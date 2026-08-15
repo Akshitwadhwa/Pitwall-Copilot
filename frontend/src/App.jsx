@@ -773,8 +773,14 @@ function confidenceLabel(value) {
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
+const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
+
+function apiUrl(path) {
+  return `${API_BASE_URL}${path}`
+}
+
 async function requestRadioAnalysis(path, message, team, audioFeatures) {
-  const response = await fetch(path, {
+  const response = await fetch(apiUrl(path), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ message, team: team.name, audioFeatures: audioFeatures || undefined }),
@@ -784,8 +790,8 @@ async function requestRadioAnalysis(path, message, team, audioFeatures) {
 }
 
 async function requestTranscription(audioBlob, direction, team) {
-  const url = `/api/transcribe/${direction}?team=${encodeURIComponent(team.name)}`
-  const response = await fetch(url, {
+  const path = `/api/transcribe/${direction}?team=${encodeURIComponent(team.name)}`
+  const response = await fetch(apiUrl(path), {
     method: 'POST',
     headers: { 'content-type': audioBlob.type || 'audio/webm' },
     body: audioBlob,
