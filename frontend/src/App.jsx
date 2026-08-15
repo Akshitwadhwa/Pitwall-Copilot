@@ -285,6 +285,77 @@ function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, enginee
   const currentKw = kwVisible && keywords?.[kwIndex] ? keywords[kwIndex] : null
   const mode = engineerRecording ? 'engineer' : driverRecording ? 'driver' : 'idle'
 
+  // Live F1 telemetry dashboard state declared unconditionally at the top level
+  const [telemetry, setTelemetry] = useState({
+    speed: 284,
+    gear: 7,
+    diff: 0.042,
+    ers: 82.4,
+    wave: Array.from({ length: 30 }, () => 50)
+  })
+
+  useEffect(() => {
+    // Speed updates every 120ms (fluctuates between 272 and 294)
+    const speedInterval = setInterval(() => {
+      setTelemetry(prev => {
+        const delta = Math.floor(Math.random() * 5) - 2
+        let nextSpeed = prev.speed + delta
+        if (nextSpeed > 305) nextSpeed = 305
+        if (nextSpeed < 265) nextSpeed = 265
+        return { ...prev, speed: nextSpeed }
+      })
+    }, 120)
+
+    // Gear changes occasionally (every 3s)
+    const gearInterval = setInterval(() => {
+      setTelemetry(prev => {
+        const roll = Math.random()
+        let nextGear = prev.gear
+        if (roll < 0.15 && prev.gear > 5) nextGear = prev.gear - 1
+        if (roll > 0.85 && prev.gear < 8) nextGear = prev.gear + 1
+        return { ...prev, gear: nextGear }
+      })
+    }, 3000)
+
+    // Delta/diff updates every 200ms
+    const diffInterval = setInterval(() => {
+      setTelemetry(prev => {
+        const delta = (Math.random() * 0.016) - 0.008
+        return { ...prev, diff: Number((prev.diff + delta).toFixed(3)) }
+      })
+    }, 200)
+
+    // ERS slowly decreases (every 2s)
+    const ersInterval = setInterval(() => {
+      setTelemetry(prev => {
+        let nextErs = prev.ers - 0.1
+        if (nextErs < 20) nextErs = 95.0
+        return { ...prev, ers: Number(nextErs.toFixed(1)) }
+      })
+    }, 2000)
+
+    // Live wave updates every 90ms (going up and down continuously)
+    const waveInterval = setInterval(() => {
+      setTelemetry(prev => {
+        const nextWave = [...prev.wave.slice(1)]
+        const lastVal = prev.wave[prev.wave.length - 1]
+        let nextVal = lastVal + (Math.random() * 16 - 8)
+        if (nextVal > 90) nextVal = 75
+        if (nextVal < 10) nextVal = 25
+        nextWave.push(nextVal)
+        return { ...prev, wave: nextWave }
+      })
+    }, 90)
+
+    return () => {
+      clearInterval(speedInterval)
+      clearInterval(gearInterval)
+      clearInterval(diffInterval)
+      clearInterval(ersInterval)
+      clearInterval(waveInterval)
+    }
+  }, [])
+
   // Render a hold-to-speak button as an SVG group
   const holdButton = (x, y, label, isRecording, onDown, onUp) => {
     const active = isRecording
@@ -365,13 +436,42 @@ function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, enginee
           <text x="500" y="291" fill={accent} textAnchor="middle" fontSize="13" fontFamily="DM Mono, monospace" letterSpacing="1">DRIVER SPEAKING</text>
           <text x="500" y="312" fill="#8da19a" textAnchor="middle" fontSize="10" fontFamily="DM Mono, monospace">LISTENING…</text>
         </>
-      ) : (
-        <>
-          <text x="389" y="281" fill="#e8fff7" fontSize="18" fontFamily="DM Mono, monospace" letterSpacing="2">{team.code} / RADIO</text>
-          <text x="389" y="309" fill={accent} fontSize="20" fontWeight="700" fontFamily="Space Grotesk, sans-serif">{mode === 'engineer' ? 'ENGINEER → DRIVER' : 'DRIVER → ENGINEER'}</text>
-          <text x="389" y="338" fill="#7e9b91" fontSize="12" fontFamily="DM Mono, monospace">LIVE TRANSCRIPTION / READY</text>
-        </>
-      )}
+      ) : (() => {
+        const wavePath = telemetry.wave.map((val, i) => {
+          const wx = 389 + i * (222 / (telemetry.wave.length - 1))
+          const wy = 352 + (val - 50) * 0.16
+          return `${i === 0 ? 'M' : 'L'} ${wx} ${wy}`
+        }).join(' ')
+
+        return (
+          <>
+            {/* Speed & Lap */}
+            <text x="389" y="268" fill="#8da19a" fontSize="8" fontFamily="DM Mono, monospace">SPD</text>
+            <text x="389" y="290" fill="#ffffff" fontSize="18" fontWeight="700" fontFamily="DM Mono, monospace">{telemetry.speed}</text>
+            <text x="389" y="306" fill="#8da19a" fontSize="7" fontFamily="DM Mono, monospace">KM/H</text>
+            
+            <text x="389" y="325" fill="#8da19a" fontSize="8" fontFamily="DM Mono, monospace">LAP</text>
+            <text x="389" y="340" fill="#ffffff" fontSize="11" fontFamily="DM Mono, monospace">42/78</text>
+
+            {/* Gear Indicator Box */}
+            <rect x="474" y="258" width="52" height="58" rx="6" fill="#111b1c" stroke="#394b4b" strokeWidth="1.5" />
+            <text x="500" y="301" fill={accent} fontSize="34" fontWeight="800" fontFamily="Space Grotesk, sans-serif" textAnchor="middle">{telemetry.gear}</text>
+            <text x="500" y="328" fill="#8da19a" fontSize="8" fontFamily="DM Mono, monospace" textAnchor="middle">GEAR</text>
+
+            {/* Diff & ERS */}
+            <text x="611" y="268" fill="#8da19a" fontSize="8" fontFamily="DM Mono, monospace" textAnchor="end">DIFF</text>
+            <text x="611" y="290" fill={telemetry.diff >= 0 ? '#ff5252' : '#4dff4d'} fontSize="14" fontWeight="700" fontFamily="DM Mono, monospace" textAnchor="end">
+              {(telemetry.diff >= 0 ? '+' : '') + telemetry.diff.toFixed(3)}
+            </text>
+            
+            <text x="611" y="325" fill="#8da19a" fontSize="8" fontFamily="DM Mono, monospace" textAnchor="end">ERS</text>
+            <text x="611" y="340" fill="#ffffff" fontSize="11" fontFamily="DM Mono, monospace" textAnchor="end">{telemetry.ers}%</text>
+
+            {/* Telemetry wave path (Image1) */}
+            <path d={wavePath} fill="none" stroke="#5d746f" strokeWidth="1.5" opacity="0.75" />
+          </>
+        )
+      })()}
 
       {Array.from({ length: 15 }).map((_, index) => <rect key={index} x={389 + index * 14.4} y="256" width="8" height={8 + (index % 4) * 4} rx="3" fill={index % 4 === 0 ? secondary : accent} opacity=".75" />)}
       {Array.from({ length: 12 }).map((_, index) => <circle key={`led-${index}`} cx={401 + index * 18} cy="187" r="5" fill={index < 4 ? accent : index < 8 ? secondary : '#77d8ba'} opacity=".85" />)}
