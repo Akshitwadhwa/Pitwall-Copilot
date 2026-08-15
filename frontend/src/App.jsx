@@ -678,6 +678,12 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
 
   return <section className="cockpit-sequence" ref={sequenceRef}>
     <div className="cockpit-sticky" onPointerMove={moveWheel} onPointerLeave={() => setPointer({ x: 0, y: 0 })}>
+      {team.controllerVideo && (
+        <>
+          <video className="cockpit-background-video" src={team.controllerVideo} autoPlay muted loop playsInline preload="auto" aria-hidden="true" />
+          <div className="cockpit-background-shade" aria-hidden="true" />
+        </>
+      )}
       <StepHeader step={3} title={`${team.name.toUpperCase()} / COCKPIT LINK`} onBack={onBack} />
       <div className="cockpit-topline"><span><i /> TEAM PROFILE LOCKED</span><span>SCROLL TO ENGAGE</span></div>
 
@@ -688,23 +694,8 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
         <p>Hold <strong>ENGINEER RADIO</strong> or <strong>DRIVER RADIO</strong> on the wheel to speak. The AI will transcribe, classify, and relay your message.</p>
       </div>
 
-      {/* Steering wheel with optional team lap footage behind the controls */}
+      {/* Steering wheel */}
       <div className="sequence-wheel" style={wheelStyle}>
-        {team.controllerVideo && (
-          <div className="wheel-video-layer" aria-hidden="true">
-            <video
-              src={team.controllerVideo}
-              title={`${team.name} lap footage`}
-              autoPlay
-              muted
-              loop
-              playsInline
-              preload="auto"
-              tabIndex="-1"
-            />
-            <span />
-          </div>
-        )}
         <F1Wheel
           team={team}
           keywords={wheelKeywords}
