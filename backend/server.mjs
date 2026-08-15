@@ -51,6 +51,13 @@ function turnFromMessage(message) {
   return match ? `T${match[1]}` : ''
 }
 
+function engineerReplyForMood(mood) {
+  if (mood === 'ANGRY') return 'COPY. STAY WITH ME. REPORT THE CAR ISSUE.'
+  if (mood === 'FRUSTRATED') return 'COPY. WE HEAR YOU. DESCRIBE THE ISSUE.'
+  if (mood === 'URGENT') return 'UNDERSTOOD. RADIO PRIORITY. GO AHEAD.'
+  return 'COPY. GO AHEAD.'
+}
+
 // ─── Deterministic driver analysis ────────────────────────────────────────────
 
 function deterministicDriverAnalysis(message) {
@@ -116,6 +123,7 @@ async function analyseDriver(message, team, audioFeatures) {
       ? 'hub-dataset-retrieval'
       : 'safe-local-fallback',
   }
+  result.engineerReply = engineerReplyForMood(result.mood)
 
   // Override issue/keyword if HF/retrieval gave us a strong label
   if (label && /rear slip/.test(label)) {

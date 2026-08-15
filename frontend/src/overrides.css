@@ -726,6 +726,124 @@
   .next-action { margin-top: 13px; }
 }
 
+/* Briefing radio log: make the communication history a primary decision aid. */
+.briefing-actions { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 14px auto 0; }
+.briefing-actions .next-action { margin: 0; }
+.briefing-actions > span { display: inline-flex; align-items: center; gap: 7px; color: #78928a; font: 7px 'DM Mono', monospace; letter-spacing: .08em; }
+.briefing-actions > span i { width: 5px; height: 5px; border-radius: 50%; background: var(--team); box-shadow: 0 0 9px var(--team); }
+.audio-issues { position: relative; overflow: hidden; padding: 18px 20px 20px !important; border: 1px solid color-mix(in srgb, var(--team) 28%, rgba(235,255,249,.16)); background: linear-gradient(120deg, color-mix(in srgb, var(--team) 8%, rgba(5,10,11,.7)), rgba(5,10,11,.36)); box-shadow: inset 0 1px 0 rgba(235,255,249,.08), 0 16px 40px rgba(0,0,0,.12); }
+.audio-issues::before { content: ''; position: absolute; top: 0; left: 0; width: 42%; height: 2px; background: linear-gradient(90deg, var(--team), transparent); box-shadow: 0 0 18px var(--team); }
+.audio-issues-heading { position: relative; z-index: 1; justify-content: space-between; }
+.audio-issues-heading > div { display: grid; gap: 6px; }
+.audio-issues-heading small { font-size: 7px; letter-spacing: .08em; }
+.audio-issues-intro { position: relative; z-index: 1; max-width: 660px; margin: 12px 0 0; color: #9db1aa; font: 11px/1.5 'Manrope', sans-serif; }
+.audio-issue-list { position: relative; z-index: 1; gap: 8px !important; margin-top: 14px !important; }
+.audio-issue { grid-template-columns: 132px 1fr 48px !important; gap: 14px !important; min-height: 72px !important; padding: 12px 13px !important; border-color: rgba(235,255,249,.15) !important; background: rgba(3,8,9,.45) !important; transition: border-color .2s, transform .2s, background .2s; }
+.audio-issue:hover { border-color: color-mix(in srgb, var(--team) 55%, transparent) !important; background: color-mix(in srgb, var(--team) 8%, rgba(3,8,9,.45)) !important; transform: translateX(3px); }
+.audio-issue-index { display: grid; align-content: center; gap: 6px; }
+.audio-issue-index b { color: var(--team); font: 16px 'Space Grotesk'; }
+.audio-issue-index span { color: #78928a; font: 7px 'DM Mono', monospace; letter-spacing: .06em; }
+.audio-issue-copy { display: grid; align-content: center; gap: 5px; }
+.audio-issue-copy strong { color: #e2f2ed; font: 700 9px 'DM Mono', monospace; letter-spacing: .12em; }
+.audio-issue-copy p { margin: 0 !important; color: #b8c9c3; font-size: 10px !important; line-height: 1.45 !important; }
+.issue-wave { justify-content: flex-end; }
+.issue-wave i { width: 3px; border-radius: 2px; box-shadow: 0 0 7px color-mix(in srgb, var(--team) 48%, transparent); }
+.issue-wave i:nth-child(5) { height: 16px; animation-delay: -.8s; }
+
+@media (max-width: 850px) {
+  .briefing-actions { align-items: flex-start; flex-direction: column; gap: 9px; }
+  .briefing-actions .next-action { width: 100%; }
+  .audio-issues { padding: 15px 12px 16px !important; }
+  .audio-issues-intro { font-size: 10px; }
+  .audio-issue { grid-template-columns: 92px 1fr 28px !important; gap: 8px !important; min-height: 70px !important; padding: 9px !important; }
+  .audio-issue-index b { font-size: 13px; }
+  .audio-issue-index span { font-size: 6px; line-height: 1.25; }
+  .audio-issue-copy strong { font-size: 8px; }
+  .audio-issue-copy p { font-size: 9px !important; }
+}
+
+/* The briefing is a real scrollable page: only the driver portraits stay docked. */
+.app-shell.page-briefing { overflow: visible; }
+.page-briefing .briefing-page { min-height: 100vh; overflow: visible; padding-bottom: 46px; }
+.page-briefing .briefing-footer { position: relative; z-index: 7; margin-top: 0; padding-bottom: 18px; }
+
+@media (min-width: 1200px) {
+  .page-briefing .briefing-wrap {
+    display: block !important;
+    position: relative !important;
+    width: min(820px, calc(100% - 620px)) !important;
+    min-height: 0 !important;
+    margin: 0 auto !important;
+    padding: 30px 0 72px !important;
+  }
+
+  .page-briefing .briefing-title {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    width: 100% !important;
+    transform: none !important;
+  }
+
+  .page-briefing .team-portrait {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    width: 100% !important;
+    height: min(360px, 31vw) !important;
+    margin: 24px auto 0 !important;
+    transform: none !important;
+  }
+
+  .page-briefing .driver-lineup,
+  .page-briefing .driver-cards { display: contents !important; }
+
+  .page-briefing .driver-lineup-heading {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    justify-content: center;
+    margin: 16px 0 0 !important;
+    transform: none !important;
+  }
+
+  .page-briefing .driver-card,
+  .page-briefing .driver-card:first-child,
+  .page-briefing .driver-card:last-child {
+    position: fixed !important;
+    z-index: 4 !important;
+    top: 108px !important;
+    width: clamp(220px, 14vw, 280px) !important;
+    height: min(72vh, 680px) !important;
+    transform: none !important;
+    animation: none !important;
+  }
+
+  .page-briefing .driver-card:first-child { left: clamp(18px, 2vw, 42px) !important; }
+  .page-briefing .driver-card:last-child { right: clamp(18px, 2vw, 42px) !important; }
+
+  .page-briefing .briefing-data {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    width: 100% !important;
+    margin: 20px auto 0 !important;
+    transform: none !important;
+  }
+
+  .page-briefing .briefing-actions { margin-top: 16px; }
+  .page-briefing .audio-issues { max-width: none; margin-top: 18px; }
+}
+
+@media (min-width: 851px) and (max-width: 1199px) {
+  .page-briefing .briefing-wrap { min-height: auto !important; padding-bottom: 64px !important; }
+  .page-briefing .briefing-data { position: relative !important; top: auto !important; }
+  .page-briefing .driver-lineup { display: block !important; position: relative !important; inset: auto !important; margin-top: 24px !important; }
+  .page-briefing .driver-lineup-heading { position: static !important; transform: none !important; justify-content: center; margin-bottom: 10px; }
+  .page-briefing .driver-cards { display: grid !important; position: static !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .page-briefing .driver-card, .page-briefing .driver-card:first-child, .page-briefing .driver-card:last-child { position: relative !important; inset: auto !important; width: 100% !important; height: 260px !important; transform: none !important; }
+}
+
 .cockpit-sequence {
   min-height: 235vh;
   position: relative;
@@ -871,6 +989,9 @@
 .sequence-radio .live-radio-card[role="button"]:hover { border-color: var(--team); box-shadow: 0 18px 55px rgba(0,0,0,.45), 0 0 24px color-mix(in srgb, var(--team) 22%, transparent); transform: translateY(-3px); }
 .radio-signal-meta { position: relative; z-index: 1; display: flex; align-items: center; gap: 8px; min-height: 17px; margin-top: 4px; padding-top: 6px; border-top: 1px solid rgba(145,182,255,.18); font: 700 8px 'DM Mono', monospace; letter-spacing: .04em; }
 .radio-signal-meta span { color: #9dbfff; font-weight: 500; }
+.radio-reply { position: relative; z-index: 1; display: grid; gap: 3px; margin-top: 7px; padding: 6px 7px; border-left: 2px solid #8fb7ff; background: rgba(76, 126, 205, .14); }
+.radio-reply span { color: #6e88bb; font: 7px 'DM Mono', monospace; letter-spacing: .08em; }
+.radio-reply b { color: #d5e3ff; font: 8px/1.35 'DM Mono', monospace; font-weight: 500; }
 .radio-progress { position: relative; z-index: 1; height: 3px; margin: 7px 0 2px; overflow: hidden; background: rgba(145,182,255,.16); }
 .radio-progress i { display: block; width: 36%; height: 100%; background: #8fb7ff; transform: translateX(-120%); }
 .radio-progress.is-processing i { animation: radioProgress 1.1s ease-in-out infinite; }

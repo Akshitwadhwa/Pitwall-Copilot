@@ -25,9 +25,9 @@ const teams = [
     summary: 'A points-focused campaign where clear, concise feedback is essential for extracting the most from each race weekend.',
     signal: 'Prioritise fast issue classification and reliable driver acknowledgement during high-pressure calls.',
     audioIssues: [
-      'Radio dropouts and missed acknowledgements during high-pressure calls.',
-      'Driver messages becoming difficult to hear over engine and pit-lane noise.',
-      'Need for shorter, confirmed instructions when the race situation changes quickly.',
+      { event: 'ROUND 03 / BAHRAIN', label: 'SIGNAL LOSS', issue: 'Radio dropouts and missed acknowledgements during high-pressure calls.' },
+      { event: 'ROUND 07 / IMOLA', label: 'LOW CLARITY', issue: 'Driver messages became difficult to hear over engine and pit-lane noise.' },
+      { event: 'SEASON PATTERN', label: 'ACK NEEDED', issue: 'Shorter, confirmed instructions are needed when the race situation changes quickly.' },
     ],
   },
   {
@@ -41,6 +41,11 @@ const teams = [
     position: 'P8', points: '12', podiums: '0', races: '11',
     summary: 'The team is collecting points in its first season under the Audi name, with the focus on extracting reliable feedback and making every radio message actionable.',
     signal: 'Prioritise radio quality checks and precise issue reporting from the driver.',
+    audioIssues: [
+      { event: 'ROUND 02 / JEDDAH', label: 'RADIO CHECK', issue: 'Longer driver-to-pit acknowledgements created uncertainty during a strategy call.' },
+      { event: 'ROUND 06 / MIAMI', label: 'PIT WALL DELAY', issue: 'Instruction changes needed a clearer repeat-back before the pit window closed.' },
+      { event: 'SEASON PATTERN', label: 'CONFIRMATION', issue: 'Prioritise concise issue labels and explicit driver acknowledgement.' },
+    ],
   },
   {
     id: 'mclaren',
@@ -53,6 +58,11 @@ const teams = [
     position: 'P3', points: '220', podiums: '3', races: '11',
     summary: 'A recovery after an uneven opening stretch. The team benefits from concise strategy confirmation during high-pressure calls.',
     signal: 'Focus the radio desk on clear confirmation when strategy decisions change quickly.',
+    audioIssues: [
+      { event: 'ROUND 04 / SUZUKA', label: 'STRATEGY CHANGE', issue: 'Rapid strategy changes required shorter radio instructions and immediate confirmation.' },
+      { event: 'ROUND 08 / MONACO', label: 'CROSS-TALK', issue: 'Multiple simultaneous calls made the key pit-wall instruction harder to isolate.' },
+      { event: 'SEASON PATTERN', label: 'FAST REPLY', issue: 'Keep the engineer response brief, prioritised, and visible on the driver display.' },
+    ],
   },
 ]
 
@@ -198,7 +208,7 @@ function StepHeader({ step, onBack, title }) {
   </header>
 }
 
-function LiveRadioCard({ team, onOpen, signalMessage = '', mood = '', issue = '', processing = false, confidence = null, timestamp = '' }) {
+function LiveRadioCard({ team, onOpen, signalMessage = '', mood = '', issue = '', reply = '', processing = false, confidence = null, timestamp = '' }) {
   const messages = useMemo(() => [
     team ? `${team.name} radio online. The channel is tuned to this team's terminology.` : 'Select a team to tune the radio channel to its terminology.',
     'Pitwall Copilot listens for signal loss, urgency and missed acknowledgement.',
@@ -238,6 +248,7 @@ function LiveRadioCard({ team, onOpen, signalMessage = '', mood = '', issue = ''
     <p>{typedMessage}<span className="typing-cursor">|</span></p>
     <div className={`radio-progress ${processing ? 'is-processing' : ''}`} aria-label={processing ? 'Transcription and analysis in progress' : 'Signal processed'}><i /></div>
     {mood && <div className="radio-signal-meta"><strong style={{ color: moodColor(mood) }}>{MOOD_LABEL[mood] || mood}</strong>{issue && <span>{issue}</span>}</div>}
+    {reply && <div className="radio-reply"><span>ENGINEER REPLY</span><b>{reply}</b></div>}
     <div className="radio-metrics"><span>AI CONFIDENCE <b>{confidenceLabel}</b></span><span>RECEIVED <b>{timestamp || '—'}</b></span></div>
     <div className="radio-card-footer"><span>COMMUNICATION EVENT</span><span>LISTENING</span></div>
   </aside>
@@ -396,6 +407,7 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
   const [driverTranscript, setDriverTranscript] = useState('')
   const [driverMood, setDriverMood] = useState(null)
   const [driverIssue, setDriverIssue] = useState('')
+  const [driverReply, setDriverReply] = useState('')
   const [driverConfidence, setDriverConfidence] = useState(null)
   const [driverTimestamp, setDriverTimestamp] = useState('')
   const [driverProcessing, setDriverProcessing] = useState(false)
@@ -485,6 +497,7 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
     onDriverSpeak?.()
     setDriverTimestamp(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
     setDriverConfidence(null)
+    setDriverReply('')
     await driverRecorder.start()
   }, [driverRecorder, engineerRecorder, onDriverSpeak, progress])
 
@@ -533,6 +546,7 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
       setDriverMood(finalMood)
       setDriverIssue(res.issue || res.keyword || '')
       setDriverConfidence(res.moodConfidence ?? res.confidence ?? null)
+      setDriverReply(res.engineerReply || '')
     } catch {
       // Local fallback: combine text analysis + rms
       const local = analyseDriverMessage(text || driverTranscript || '')
@@ -542,6 +556,7 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
       setDriverMood(finalMood)
       setDriverIssue(local.issue || '')
       setDriverConfidence(local.confidence ?? null)
+      setDriverReply(local.state === 'ANGRY' ? 'COPY. STAY WITH ME. REPORT THE CAR ISSUE.' : local.state === 'URGENT' ? 'UNDERSTOOD. RADIO PRIORITY. GO AHEAD.' : local.state === 'FRUSTRATED' ? 'COPY. WE HEAR YOU. DESCRIBE THE ISSUE.' : 'COPY. GO AHEAD.')
     } finally {
       setDriverProcessing(false)
     }
@@ -591,7 +606,7 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
 
       {/* Persistent blue live-signal panel. It becomes readable once the wheel locks. */}
       <div className="sequence-radio" style={{ opacity: panelOpacity, pointerEvents: panelOpacity > .5 ? 'auto' : 'none', transform: `translateX(${(1 - panelOpacity) * 36}px)` }}>
-        <LiveRadioCard team={team} onOpen={() => onStart?.()} signalMessage={driverProcessing ? 'TRANSCRIBING / ANALYSING…' : driverTranscript ? `DRIVER: ${driverTranscript}` : ''} mood={driverMood} issue={driverIssue} processing={driverProcessing} confidence={driverConfidence} timestamp={driverTimestamp} />
+        <LiveRadioCard team={team} onOpen={() => onStart?.()} signalMessage={driverProcessing ? 'TRANSCRIBING / ANALYSING…' : driverTranscript ? `DRIVER: ${driverTranscript}` : ''} mood={driverMood} issue={driverIssue} reply={driverReply} processing={driverProcessing} confidence={driverConfidence} timestamp={driverTimestamp} />
       </div>
 
       {/* Engineer transcript panel — LEFT side */}
@@ -1125,10 +1140,10 @@ function App() {
         <article className="briefing-data">
           <p className="briefing-summary">{selected.summary}</p>
           <div className="stat-grid"><div><span>CHAMPIONSHIP</span><AnimatedStat value={selected.position} /></div><div><span>POINTS</span><AnimatedStat value={selected.points} /></div><div><span>GP PODIUMS</span><AnimatedStat value={selected.podiums} /></div><div><span>ROUNDS</span><AnimatedStat value={selected.races} /></div></div>
+          <div className="briefing-actions"><button className="primary-action next-action" onClick={() => goTo('cockpit')}>ENTER COCKPIT LINK <ArrowUpRight size={17} /></button><span><i /> RADIO DESK READY / TEAM CHANNEL LOCKED</span></div>
           <div className="copilot-note"><SparkleIcon size={17} /><div><span>COPILOT FOCUS</span><p>{selected.signal}</p></div></div>
-          {selected.audioIssues?.length > 0 && <section className="audio-issues"><div className="audio-issues-heading"><span>RADIO ISSUES / SIGNAL HISTORY</span><i /><small>KNOWN COMMUNICATION FRICTION</small></div><div className="audio-issue-list">{selected.audioIssues.map((issue, index) => <div className="audio-issue" key={issue}><b>0{index + 1}</b><p>{issue}</p><span className="issue-wave"><i /><i /><i /><i /></span></div>)}</div></section>}
+          {selected.audioIssues?.length > 0 && <section className="audio-issues"><div className="audio-issues-heading"><div><span>RADIO ISSUES / SIGNAL HISTORY</span><small>WHY THIS TEAM CHANNEL NEEDS A COPILOT</small></div><i /></div><p className="audio-issues-intro">A compact season log of communication friction. Each event becomes a priority for the live radio desk.</p><div className="audio-issue-list">{selected.audioIssues.map((item, index) => <div className="audio-issue" key={item.event}><div className="audio-issue-index"><b>0{index + 1}</b><span>{item.event}</span></div><div className="audio-issue-copy"><strong>{item.label}</strong><p>{item.issue}</p></div><span className="issue-wave" aria-hidden="true"><i /><i /><i /><i /><i /></span></div>)}</div></section>}
           <div className="source-line">SEASON SNAPSHOT: FORMULA1.COM RESULTS / CHECKED 10 AUG 2026</div>
-          <button className="primary-action next-action" onClick={() => goTo('cockpit')}>ENTER COCKPIT LINK <ArrowUpRight size={17} /></button>
         </article>
       </div>
       <div className="briefing-footer">DATA SHOULD INFORM THE DRIVER. NEVER DISTRACT THEM.</div>
