@@ -41,6 +41,15 @@ const INTENSITY_PHRASES = [
   /absolutely (awful|terrible|ridiculous)/i,
 ]
 
+const URGENCY_PHRASES = [
+  /\bhelp\b/i,
+  /emergency/i,
+  /urgent/i,
+  /respond/i,
+  /can't hear/i,
+  /radio (failure|broken|down)/i,
+]
+
 /**
  * Count cuss words in a text string.
  * @param {string} text - lowercased input
@@ -61,6 +70,15 @@ export function detectMoodFromText(text) {
   const cussCount = countCussWords(lower)
   const hasFrustration = FRUSTRATION_PHRASES.some((re) => re.test(lower))
   const hasIntensity = INTENSITY_PHRASES.some((re) => re.test(lower))
+  const hasUrgency = URGENCY_PHRASES.some((re) => re.test(lower))
+
+  if (hasUrgency) {
+    return {
+      mood: 'URGENT',
+      moodConfidence: 0.88,
+      moodReason: 'urgent radio language detected',
+    }
+  }
 
   if (cussCount >= 2 || (cussCount >= 1 && hasIntensity)) {
     return {
@@ -96,6 +114,15 @@ export function detectMoodFromAudio(text, audioFeatures) {
   const lower = text.toLowerCase()
   const cussCount = countCussWords(lower)
   const hasFrustration = FRUSTRATION_PHRASES.some((re) => re.test(lower))
+  const hasUrgency = URGENCY_PHRASES.some((re) => re.test(lower))
+
+  if (hasUrgency && rms > 0.08) {
+    return {
+      mood: 'URGENT',
+      moodConfidence: Math.min(0.96, 0.82 + rms * 0.5),
+      moodReason: `urgent radio language + vocal energy (${(rms * 100).toFixed(0)}%)`,
+    }
+  }
 
   // High energy + cuss words = ANGRY
   if (rms > 0.18 && (cussCount >= 1 || hasFrustration)) {

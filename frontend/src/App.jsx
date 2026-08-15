@@ -15,7 +15,7 @@ import mclarenDriverTwo from './assets/mclaren-driver-2.jpg.webp'
 const teams = [
   {
     id: 'haas',
-    name: 'Haas', code: 'HAA', color: '#d71920', accent: '#f4f4f4',
+    name: 'Haas', code: 'HAA', color: '#d71920', accent: '#f4f4f4', wheelBody: '#151518', wheelTrim: '#f4f4f4',
     image: haasCar,
     drivers: [
       { name: 'Esteban Ocon', number: '31', image: haasDriverOne, profile: 'PRECISE / FEEDBACK' },
@@ -32,7 +32,7 @@ const teams = [
   },
   {
     id: 'audi',
-    name: 'Audi', code: 'AUD', color: '#f1192e', accent: '#e7e7e7',
+    name: 'Audi', code: 'AUD', color: '#e30613', accent: '#c9cdd1', wheelBody: '#17191c', wheelTrim: '#e7e7e7',
     image: audiCar,
     drivers: [
       { name: 'Gabriel Bortoleto', number: '5', image: audiDriverOne, profile: 'PRECISION / CONTROL' },
@@ -44,7 +44,7 @@ const teams = [
   },
   {
     id: 'mclaren',
-    name: 'McLaren', code: 'MCL', color: '#ff8000', accent: '#8cebdd',
+    name: 'McLaren', code: 'MCL', color: '#ff8000', accent: '#8cebdd', wheelBody: '#17191b', wheelTrim: '#8cebdd',
     image: mclarenCar,
     drivers: [
       { name: 'Lando Norris', number: '4', image: mclarenDriverOne, profile: 'DIRECT / PRECISION' },
@@ -58,8 +58,8 @@ const teams = [
 
 // ─── Mood helpers ──────────────────────────────────────────────────────────────
 
-const MOOD_COLOUR = { ANGRY: '#ff4040', FRUSTRATED: '#ff9020', CALM: '#40d490', FOCUSED: '#40d490', REVIEW: '#f0b040' }
-const MOOD_LABEL = { ANGRY: '⚠ ANGRY', FRUSTRATED: '! FRUSTRATED', CALM: '✓ CALM', FOCUSED: '✓ FOCUSED', REVIEW: '? UNCERTAIN' }
+const MOOD_COLOUR = { ANGRY: '#ff4040', URGENT: '#ff4f5e', FRUSTRATED: '#ff9020', CALM: '#40d490', FOCUSED: '#40d490', REVIEW: '#f0b040' }
+const MOOD_LABEL = { ANGRY: '⚠ ANGRY', URGENT: '‼ URGENT', FRUSTRATED: '! FRUSTRATED', CALM: '✓ CALM', FOCUSED: '✓ FOCUSED', REVIEW: '? UNCERTAIN' }
 
 function moodColor(mood) {
   return MOOD_COLOUR[mood] || '#8da19a'
@@ -198,26 +198,33 @@ function StepHeader({ step, onBack, title }) {
   </header>
 }
 
-function LiveRadioCard({ team, onOpen }) {
+function LiveRadioCard({ team, onOpen, signalMessage = '', mood = '', issue = '', processing = false, confidence = null, timestamp = '' }) {
   const messages = useMemo(() => [
     team ? `${team.name} radio online. The channel is tuned to this team's terminology.` : 'Select a team to tune the radio channel to its terminology.',
     'Pitwall Copilot listens for signal loss, urgency and missed acknowledgement.',
   ], [team])
   const [messageIndex, setMessageIndex] = useState(0)
   const [typedMessage, setTypedMessage] = useState('')
+  const confidenceNumber = confidence == null ? null : Number.parseFloat(String(confidence).replace('%', ''))
+  const confidenceLabel = confidenceNumber == null || Number.isNaN(confidenceNumber) ? '—' : `${Math.round(confidenceNumber <= 1 ? confidenceNumber * 100 : confidenceNumber)}%`
 
   useEffect(() => {
-    const activeMessage = messages[messageIndex]
+    setTypedMessage('')
+  }, [signalMessage])
+
+  useEffect(() => {
+    const activeMessage = signalMessage || messages[messageIndex]
     if (typedMessage.length < activeMessage.length) {
       const timer = window.setTimeout(() => setTypedMessage(activeMessage.slice(0, typedMessage.length + 1)), 23)
       return () => window.clearTimeout(timer)
     }
+    if (signalMessage) return undefined
     const timer = window.setTimeout(() => {
       setTypedMessage('')
       setMessageIndex((current) => (current + 1) % messages.length)
     }, 3200)
     return () => window.clearTimeout(timer)
-  }, [messageIndex, messages, typedMessage])
+  }, [messageIndex, messages, signalMessage, typedMessage])
 
   const openDesk = () => onOpen?.()
   const handleKeyDown = (event) => {
@@ -229,6 +236,9 @@ function LiveRadioCard({ team, onOpen }) {
     <div className="radio-team"><span className="radio-number">{team?.code || '01'}</span><div><strong>{team?.name || 'RADIO'}</strong><b>RADIO</b></div></div>
     <div className="mini-wave" aria-hidden="true">{Array.from({ length: 25 }).map((_, index) => <i key={index} style={{ '--h': `${7 + (index % 6) * 4}px`, '--delay': `${index * -.075}s` }} />)}</div>
     <p>{typedMessage}<span className="typing-cursor">|</span></p>
+    <div className={`radio-progress ${processing ? 'is-processing' : ''}`} aria-label={processing ? 'Transcription and analysis in progress' : 'Signal processed'}><i /></div>
+    {mood && <div className="radio-signal-meta"><strong style={{ color: moodColor(mood) }}>{MOOD_LABEL[mood] || mood}</strong>{issue && <span>{issue}</span>}</div>}
+    <div className="radio-metrics"><span>AI CONFIDENCE <b>{confidenceLabel}</b></span><span>RECEIVED <b>{timestamp || '—'}</b></span></div>
     <div className="radio-card-footer"><span>COMMUNICATION EVENT</span><span>LISTENING</span></div>
   </aside>
 }
@@ -239,6 +249,8 @@ function LiveRadioCard({ team, onOpen }) {
 function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, engineerRecording, driverRecording, onEngineerDown, onEngineerUp, onDriverDown, onDriverUp }) {
   const accent = team.color
   const secondary = team.accent
+  const wheelBody = team.wheelBody || '#202c2d'
+  const wheelTrim = team.wheelTrim || secondary
 
   const [kwIndex, setKwIndex] = useState(0)
   const [kwVisible, setKwVisible] = useState(false)
@@ -294,17 +306,17 @@ function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, enginee
 
   return <svg className="vector-wheel" viewBox="0 0 1000 690" role="img" aria-label={`${team.name} F1 steering wheel — hold a button to speak`}>
     <defs>
-      <linearGradient id="wheelBody" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stopColor="#202c2d" /><stop offset=".5" stopColor="#0a1012" /><stop offset="1" stopColor="#273432" /></linearGradient>
+      <linearGradient id="wheelBody" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stopColor={wheelBody} /><stop offset=".32" stopColor={accent} stopOpacity=".32" /><stop offset=".56" stopColor="#080b0d" /><stop offset="1" stopColor={secondary} stopOpacity=".28" /></linearGradient>
       <linearGradient id="screenGlow" x1="0" x2="1"><stop stopColor={accent} stopOpacity=".9" /><stop offset="1" stopColor={secondary} stopOpacity=".8" /></linearGradient>
       <filter id="wheelShadow"><feDropShadow dx="0" dy="22" stdDeviation="18" floodColor="#000" floodOpacity=".55" /></filter>
     </defs>
     <ellipse cx="500" cy="625" rx="350" ry="24" fill={accent} opacity=".13" />
     <g filter="url(#wheelShadow)">
-      <path d="M118 187 C142 109 238 68 327 110 L394 150 L606 150 L673 110 C762 68 858 109 882 187 L821 231 L792 436 C780 523 704 568 622 539 L554 507 L446 507 L378 539 C296 568 220 523 208 436 L179 231 Z" fill="url(#wheelBody)" stroke="#6f8d85" strokeWidth="5" />
-      <path d="M166 207 C193 135 255 112 318 139 L383 176 L617 176 L682 139 C745 112 807 135 834 207 L792 224 L764 405 C753 476 691 506 631 486 L558 457 L442 457 L369 486 C309 506 247 476 236 405 L208 224 Z" fill="#0d1517" stroke="#293b3b" strokeWidth="3" />
-      <path d="M176 196 C124 198 93 247 100 326 C106 400 135 463 177 493 L222 459 L207 252 Z" fill="#101819" stroke="#647e77" strokeWidth="5" />
-      <path d="M824 196 C876 198 907 247 900 326 C894 400 865 463 823 493 L778 459 L793 252 Z" fill="#101819" stroke="#647e77" strokeWidth="5" />
-      <path d="M390 194 L610 194 L655 232 L655 402 L610 438 L390 438 L345 402 L345 232 Z" fill="#091012" stroke="#829a92" strokeWidth="4" />
+      <path d="M118 187 C142 109 238 68 327 110 L394 150 L606 150 L673 110 C762 68 858 109 882 187 L821 231 L792 436 C780 523 704 568 622 539 L554 507 L446 507 L378 539 C296 568 220 523 208 436 L179 231 Z" fill="url(#wheelBody)" stroke={wheelTrim} strokeOpacity=".72" strokeWidth="5" />
+      <path d="M166 207 C193 135 255 112 318 139 L383 176 L617 176 L682 139 C745 112 807 135 834 207 L792 224 L764 405 C753 476 691 506 631 486 L558 457 L442 457 L369 486 C309 506 247 476 236 405 L208 224 Z" fill="#0d1517" stroke={accent} strokeOpacity=".3" strokeWidth="3" />
+      <path d="M176 196 C124 198 93 247 100 326 C106 400 135 463 177 493 L222 459 L207 252 Z" fill={wheelBody} stroke={wheelTrim} strokeOpacity=".6" strokeWidth="5" />
+      <path d="M824 196 C876 198 907 247 900 326 C894 400 865 463 823 493 L778 459 L793 252 Z" fill={wheelBody} stroke={wheelTrim} strokeOpacity=".6" strokeWidth="5" />
+      <path d="M390 194 L610 194 L655 232 L655 402 L610 438 L390 438 L345 402 L345 232 Z" fill="#091012" stroke={wheelTrim} strokeOpacity=".7" strokeWidth="4" />
 
       {/* Center screen */}
       <rect x="371" y="220" width="258" height="145" rx="10" fill={currentKw ? '#ffffff' : '#081012'} stroke={currentKw ? '#ffffff' : accent} strokeOpacity={currentKw ? '1' : '.65'} strokeWidth="3" style={{ transition: 'fill .3s, stroke .3s' }} />
@@ -369,7 +381,7 @@ function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, enginee
 // Engineer button (left) and Driver button (right) are hold-to-speak mics.
 // Left panel shows engineer transcript, right shows driver transcript + mood.
 
-function CockpitLink({ team, onBack, onStart }) {
+function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
   const sequenceRef = useRef()
   const [progress, setProgress] = useState(0)
   const [pointer, setPointer] = useState({ x: 0, y: 0 })
@@ -384,6 +396,8 @@ function CockpitLink({ team, onBack, onStart }) {
   const [driverTranscript, setDriverTranscript] = useState('')
   const [driverMood, setDriverMood] = useState(null)
   const [driverIssue, setDriverIssue] = useState('')
+  const [driverConfidence, setDriverConfidence] = useState(null)
+  const [driverTimestamp, setDriverTimestamp] = useState('')
   const [driverProcessing, setDriverProcessing] = useState(false)
 
   // Wheel keyword display
@@ -468,8 +482,11 @@ function CockpitLink({ team, onBack, onStart }) {
   // ── Driver hold-to-speak ──
   const handleDriverDown = useCallback(async () => {
     if (progress < 0.72 || driverRecorder.recording || engineerRecorder.recording) return
+    onDriverSpeak?.()
+    setDriverTimestamp(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
+    setDriverConfidence(null)
     await driverRecorder.start()
-  }, [driverRecorder, engineerRecorder, progress])
+  }, [driverRecorder, engineerRecorder, onDriverSpeak, progress])
 
   const handleDriverUp = useCallback(async () => {
     if (!driverRecorder.recording) return
@@ -510,19 +527,21 @@ function CockpitLink({ team, onBack, onStart }) {
       if (cussCount >= 1) textMood = 'ANGRY'
 
       // Take the more extreme of the two mood signals
-      const moodRank = { CALM: 0, FOCUSED: 0, REVIEW: 1, FRUSTRATED: 2, ANGRY: 3 }
+      const moodRank = { CALM: 0, FOCUSED: 0, REVIEW: 1, FRUSTRATED: 2, URGENT: 3, ANGRY: 4 }
       const finalMood = (moodRank[rmsBasedMood] || 0) >= (moodRank[textMood] || 0) ? rmsBasedMood : textMood
 
       setDriverMood(finalMood)
       setDriverIssue(res.issue || res.keyword || '')
+      setDriverConfidence(res.moodConfidence ?? res.confidence ?? null)
     } catch {
       // Local fallback: combine text analysis + rms
       const local = analyseDriverMessage(text || driverTranscript || '')
-      const moodRank = { CALM: 0, FOCUSED: 0, REVIEW: 1, FRUSTRATED: 2, ANGRY: 3 }
+      const moodRank = { CALM: 0, FOCUSED: 0, REVIEW: 1, FRUSTRATED: 2, URGENT: 3, ANGRY: 4 }
       const localMoodStr = local.state || 'CALM'
       const finalMood = (moodRank[rmsBasedMood] || 0) >= (moodRank[localMoodStr] || 0) ? rmsBasedMood : localMoodStr
       setDriverMood(finalMood)
       setDriverIssue(local.issue || '')
+      setDriverConfidence(local.confidence ?? null)
     } finally {
       setDriverProcessing(false)
     }
@@ -570,6 +589,11 @@ function CockpitLink({ team, onBack, onStart }) {
       {/* Hood decoration */}
       <div className="cockpit-hood" style={{ opacity: Math.min(1, progress * 1.7) }}><span className="hood-light hood-left" /><span className="hood-light hood-right" /><b>COCKPIT LINK</b></div>
 
+      {/* Persistent blue live-signal panel. It becomes readable once the wheel locks. */}
+      <div className="sequence-radio" style={{ opacity: panelOpacity, pointerEvents: panelOpacity > .5 ? 'auto' : 'none', transform: `translateX(${(1 - panelOpacity) * 36}px)` }}>
+        <LiveRadioCard team={team} onOpen={() => onStart?.()} signalMessage={driverProcessing ? 'TRANSCRIBING / ANALYSING…' : driverTranscript ? `DRIVER: ${driverTranscript}` : ''} mood={driverMood} issue={driverIssue} processing={driverProcessing} confidence={driverConfidence} timestamp={driverTimestamp} />
+      </div>
+
       {/* Engineer transcript panel — LEFT side */}
       <div className="cockpit-transcript cockpit-transcript-left" style={{ opacity: panelOpacity, pointerEvents: panelOpacity > .5 ? 'auto' : 'none', transform: `translateX(${(1 - panelOpacity) * -28}px)` }}>
         <div className="ct-label"><span className="ct-dot" /> ENGINEER RADIO</div>
@@ -581,22 +605,6 @@ function CockpitLink({ team, onBack, onStart }) {
         {wheelKeywords.length > 0 && !engineerProcessing && (
           <div className="ct-keywords">
             {wheelKeywords.map((kw, i) => <span key={i} className="ct-kw">{kw}</span>)}
-          </div>
-        )}
-      </div>
-
-      {/* Driver transcript panel — RIGHT side */}
-      <div className="cockpit-transcript cockpit-transcript-right" style={{ opacity: panelOpacity, pointerEvents: panelOpacity > .5 ? 'auto' : 'none', transform: `translateX(${(1 - panelOpacity) * 28}px)` }}>
-        <div className="ct-label"><span className="ct-dot" /> DRIVER RADIO</div>
-        {driverProcessing
-          ? <p className="ct-processing">PROCESSING…</p>
-          : driverTranscript
-          ? <p className="ct-text">"{driverTranscript}"</p>
-          : <p className="ct-idle">Hold DRIVER RADIO to speak.</p>}
-        {driverMood && !driverProcessing && (
-          <div className="ct-mood" style={{ color: moodColor(driverMood) }}>
-            {MOOD_LABEL[driverMood] || driverMood}
-            {driverIssue && <span className="ct-issue">{driverIssue}</span>}
           </div>
         )}
       </div>
@@ -689,7 +697,8 @@ function analyseDriverMessage(message) {
   const frustrated = /can't|cannot|won't|not working|no grip|no traction|losing|sliding|oversteering|understeering|too (slow|fast|wide|tight)|going (wide|off|off-track)|missing|struggling|problem|issue|wrong|bad|worse|losing it/i.test(text)
 
   let state = 'CALM'
-  if (cussCount >= 2) state = 'ANGRY'
+  if (/\bhelp\b|emergency|urgent|respond|can't hear|radio (failure|broken|down)/i.test(text)) state = 'URGENT'
+  else if (cussCount >= 2) state = 'ANGRY'
   else if (cussCount >= 1) state = 'ANGRY'
   else if (frustrated) state = 'FRUSTRATED'
   else if (/rear|slid|throttle|traction|snap/.test(text)) state = 'FRUSTRATED'
@@ -1125,7 +1134,7 @@ function App() {
       <div className="briefing-footer">DATA SHOULD INFORM THE DRIVER. NEVER DISTRACT THEM.</div>
     </section>}
 
-    {page === 'cockpit' && selected && <CockpitLink team={selected} onBack={() => goTo('teams')} onStart={() => goTo('radio')} />}
+    {page === 'cockpit' && selected && <CockpitLink team={selected} onBack={() => goTo('teams')} onStart={() => goTo('radio')} onDriverSpeak={startRadioAudio} />}
     {page === 'radio' && selected && <RadioDesk team={selected} onBack={() => goTo('cockpit')} />}
   </main>
 }
