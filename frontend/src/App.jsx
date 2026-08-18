@@ -260,7 +260,7 @@ function LiveRadioCard({ team, onOpen, signalMessage = '', mood = '', issue = ''
 // ─── F1 Wheel — hold-to-speak buttons ────────────────────────────────────────
 // Left button = ENGINEER RADIO, Right button = DRIVER RADIO (swapped per spec)
 
-function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, engineerRecording, driverRecording, onEngineerDown, onEngineerUp, onDriverDown, onDriverUp, showLapControl = false, lapState = 'idle', lapProgress = 0, onStartLap }) {
+function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, engineerRecording, driverRecording, onEngineerDown, onEngineerUp, onDriverDown, onDriverUp, showLapControl = false, lapState = 'idle', lapProgress = 0, lapReady = true, lapAvailabilityLabel = '', onStartLap }) {
   const accent = team.color
   const secondary = team.accent
   const wheelBody = team.wheelBody || '#202c2d'
@@ -286,7 +286,7 @@ function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, enginee
   const mode = engineerRecording ? 'engineer' : driverRecording ? 'driver' : 'idle'
   const lapControlScreen = showLapControl && !currentKw && !engineerRecording && !driverRecording
   const lapLabel = lapState === 'running' ? `LAP 01 / ${String(Math.round(lapProgress * 100)).padStart(2, '0')}%` : lapState === 'finished' ? 'LAP COMPLETE' : 'START LAP'
-  const lapHint = lapState === 'running' ? 'SIMULATION RUNNING' : lapState === 'finished' ? 'OPEN ENGINEER MODE' : controlsEnabled ? 'PRESS TO BEGIN' : 'LOCK WHEEL FIRST'
+  const lapHint = lapState === 'running' ? 'LIVE RUNNING' : lapState === 'finished' ? 'OPEN ENGINEER MODE' : !lapReady ? lapAvailabilityLabel || 'LOADING REAL DATA' : controlsEnabled ? 'PRESS TO BEGIN' : 'LOCK WHEEL FIRST'
 
   // Live F1 telemetry dashboard state declared unconditionally at the top level
   const [telemetry, setTelemetry] = useState({
@@ -414,13 +414,13 @@ function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, enginee
         <g
           role="button"
           tabIndex={controlsEnabled ? '0' : '-1'}
-          aria-disabled={!controlsEnabled}
-          aria-label={controlsEnabled ? 'Start lap simulation' : 'Start lap locked until wheel is engaged'}
-          style={{ cursor: controlsEnabled ? 'pointer' : 'not-allowed' }}
-          onClick={() => controlsEnabled && onStartLap?.()}
-          onKeyDown={(event) => controlsEnabled && (event.key === 'Enter' || event.key === ' ') && onStartLap?.()}
+          aria-disabled={!controlsEnabled || !lapReady}
+          aria-label={!lapReady ? lapAvailabilityLabel || 'Loading real lap data' : controlsEnabled ? 'Start lap simulation' : 'Start lap locked until wheel is engaged'}
+          style={{ cursor: controlsEnabled && lapReady ? 'pointer' : 'not-allowed' }}
+          onClick={() => controlsEnabled && lapReady && onStartLap?.()}
+          onKeyDown={(event) => controlsEnabled && lapReady && (event.key === 'Enter' || event.key === ' ') && onStartLap?.()}
         >
-          <rect x="380" y="258" width="240" height="82" rx="7" fill={lapState === 'running' ? accent : '#101819'} stroke={lapState === 'running' ? accent : wheelTrim} strokeOpacity={controlsEnabled ? '.9' : '.35'} strokeWidth="1.5" />
+          <rect x="380" y="258" width="240" height="82" rx="7" fill={lapState === 'running' ? accent : '#101819'} stroke={lapState === 'running' ? accent : wheelTrim} strokeOpacity={controlsEnabled && lapReady ? '.9' : '.35'} strokeWidth="1.5" />
           <text x="500" y="292" fill={lapState === 'running' ? '#06100e' : accent} textAnchor="middle" fontSize="21" fontWeight="700" fontFamily="Space Grotesk, sans-serif" letterSpacing="-1">{lapLabel}</text>
           <text x="500" y="318" fill={lapState === 'running' ? '#16352c' : '#91aaa1'} textAnchor="middle" fontSize="8" fontFamily="DM Mono, monospace" letterSpacing="1.7">{lapHint}</text>
         </g>
@@ -508,13 +508,36 @@ function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, enginee
   </svg>
 }
 
-function LapRunConsole({ team, lapState, lapProgress, driverTranscript, engineerTranscript, driverMood, driverIssue, onEngineerMode }) {
+function normaliseTrackPoints(points, width, height, padding = 22) {
+  const valid = (points || []).filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+  if (valid.length < 2) return []
+  const xs = valid.map((point) => point.x)
+  const ys = valid.map((point) => point.y)
+  const minX = Math.min(...xs); const maxX = Math.max(...xs)
+  const minY = Math.min(...ys); const maxY = Math.max(...ys)
+  const scale = Math.min((width - padding * 2) / Math.max(1, maxX - minX), (height - padding * 2) / Math.max(1, maxY - minY))
+  return valid.map((point) => ({
+    x: padding + (point.x - minX) * scale,
+    y: height - padding - (point.y - minY) * scale,
+  }))
+}
+
+function lapTimeLabel(seconds) {
+  if (!Number.isFinite(seconds)) return '—'
+  const minutes = Math.floor(seconds / 60)
+  return `${minutes}:${(seconds - minutes * 60).toFixed(3).padStart(6, '0')}`
+}
+
+function LapRunConsole({ team, lapState, lapProgress, driverTranscript, engineerTranscript, driverMood, driverIssue, replayData, onEngineerMode }) {
+  const actualLap = replayData?.comparison?.current
+  const track = normaliseTrackPoints(replayData?.track_position, 420, 220, 30)
+  const car = track[Math.min(track.length - 1, Math.round(lapProgress * Math.max(0, track.length - 1)))]
   const activeEvent = lapProgress < .22 ? 'GRID EXIT' : lapProgress < .48 ? 'SECTOR 1' : lapProgress < .76 ? 'RADIO WINDOW' : lapProgress < 1 ? 'SECTOR 3' : 'FINISH'
   const angle = lapProgress * Math.PI * 2 - Math.PI / 2
   const carX = 50 + Math.cos(angle) * 34 + Math.sin(angle * 3) * 5
   const carY = 50 + Math.sin(angle) * 27 + Math.cos(angle * 2) * 4
   const timeline = [
-    ['GRID EXIT', 0], ['S1', .24], ['RADIO', .52], ['S3', .78], ['FINISH', 1],
+    ['GRID EXIT', 0, '00:00'], ['S1', .24, actualLap ? `${actualLap.sector_1.toFixed(3)}s` : '—'], ['RADIO', .52, 'LIVE'], ['S3', .78, actualLap ? `${actualLap.sector_3.toFixed(3)}s` : '—'], ['FINISH', 1, actualLap ? lapTimeLabel(actualLap.duration) : '—'],
   ]
 
   return <section className={`lap-run-console lap-${lapState}`} aria-label="Lap simulation">
@@ -526,46 +549,53 @@ function LapRunConsole({ team, lapState, lapProgress, driverTranscript, engineer
     </article>
 
     <article className="lap-track-card">
-      <div className="lap-panel-label"><i /> {lapState === 'finished' ? 'RUN COMPLETE' : 'LAP 01 / SIMULATION'}</div>
+      <div className="lap-panel-label"><i /> {lapState === 'finished' ? 'RUN COMPLETE' : `${replayData?.session?.circuit_short_name || 'CIRCUIT'} / LIVE RUN`}</div>
       <svg viewBox="0 0 420 220" role="img" aria-label="Simplified circuit with animated car">
-        <path d="M69 111 C69 57 127 35 178 56 C223 20 317 38 341 82 C374 139 320 185 257 167 C215 203 121 190 84 151 C69 136 65 124 69 111Z" fill="none" stroke="#344b46" strokeWidth="13" strokeLinecap="round" />
-        <path d="M69 111 C69 57 127 35 178 56 C223 20 317 38 341 82 C374 139 320 185 257 167 C215 203 121 190 84 151 C69 136 65 124 69 111Z" fill="none" stroke={team.color} strokeWidth="3" strokeLinecap="round" strokeDasharray="6 9" opacity=".8" />
-        <circle cx={carX * 4.2} cy={carY * 2.2} r="10" fill={team.color} stroke="#effff9" strokeWidth="3" />
-        <path d={`M ${carX * 4.2 - 4} ${carY * 2.2 + 5} L ${carX * 4.2 + 8} ${carY * 2.2} L ${carX * 4.2 - 4} ${carY * 2.2 - 5} Z`} fill="#07100e" />
+        {track.length > 1 ? <>
+          <polyline points={track.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke="#344b46" strokeWidth="13" strokeLinecap="round" strokeLinejoin="round" />
+          <polyline points={track.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke={team.color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="6 9" opacity=".85" />
+          {car && <><circle cx={car.x} cy={car.y} r="10" fill={team.color} stroke="#effff9" strokeWidth="3" /><path d={`M ${car.x - 4} ${car.y + 5} L ${car.x + 8} ${car.y} L ${car.x - 4} ${car.y - 5} Z`} fill="#07100e" /></>}
+        </> : <><path d="M69 111 C69 57 127 35 178 56 C223 20 317 38 341 82 C374 139 320 185 257 167 C215 203 121 190 84 151 C69 136 65 124 69 111Z" fill="none" stroke="#344b46" strokeWidth="13" strokeLinecap="round" /><path d="M69 111 C69 57 127 35 178 56 C223 20 317 38 341 82 C374 139 320 185 257 167 C215 203 121 190 84 151 C69 136 65 124 69 111Z" fill="none" stroke={team.color} strokeWidth="3" strokeLinecap="round" strokeDasharray="6 9" opacity=".8" /><circle cx={carX * 4.2} cy={carY * 2.2} r="10" fill={team.color} stroke="#effff9" strokeWidth="3" /></>}
       </svg>
-      <div className="lap-track-readout"><b>{String(Math.round(lapProgress * 100)).padStart(2, '0')}%</b><span>{activeEvent}</span></div>
+      <div className="lap-track-readout"><b>{String(Math.round(lapProgress * 100)).padStart(2, '0')}%</b><span>{actualLap ? `ACTUAL LAP ${actualLap.lap_number}` : activeEvent}</span></div>
     </article>
 
     <article className="lap-timeline-panel">
       <div className="lap-panel-label"><i /> LAP TIMELINE</div>
       <div className="lap-timeline-line"><i style={{ height: `${lapProgress * 100}%` }} /></div>
-      <ol>{timeline.map(([label, at]) => <li key={label} className={lapProgress >= at ? 'is-passed' : ''}><span>{label}</span><b>{at === 0 ? '00:00' : at === 1 ? 'FINISH' : `${String(Math.round(at * 78)).padStart(2, '0')}s`}</b></li>)}</ol>
+      <ol>{timeline.map(([label, at, value]) => <li key={label} className={lapProgress >= at ? 'is-passed' : ''}><span>{label}</span><b>{value}</b></li>)}</ol>
       <button type="button" onClick={onEngineerMode} disabled={lapState !== 'finished'}>ENGINEER MODE <ArrowUpRight size={13} /></button>
     </article>
   </section>
 }
 
-function EngineerMode({ team, driverTranscript, driverIssue, driverMood, onClose }) {
+function EngineerMode({ team, driverTranscript, driverIssue, driverMood, replayData, onClose }) {
   const issue = driverIssue || 'NO ISSUE LOGGED'
   const report = driverTranscript || 'No driver radio has been captured for this run yet.'
+  const track = normaliseTrackPoints(replayData?.track_position, 720, 410, 54)
+  const trackPolyline = track.map((point) => `${point.x},${point.y}`).join(' ')
+  const currentLap = replayData?.comparison?.current
+  const referenceLap = replayData?.comparison?.reference
+  const delta = replayData?.comparison?.delta_seconds
 
   return <section className="engineer-mode" role="dialog" aria-modal="true" aria-label="Engineer Mode track comparison">
     <div className="engineer-mode-top"><div><span>ENGINEER MODE / RUN DIFFERENCE</span><h2>Track comparison</h2></div><button type="button" onClick={onClose}><X size={16} /> CLOSE</button></div>
     <div className="engineer-mode-grid">
-      <article className="engineer-note"><span>PREVIOUS RUN</span><b>REFERENCE LINE</b><p>Baseline run stored as the comparison reference.</p><small>NO RADIO ISSUE FLAGGED</small></article>
+      <article className="engineer-note"><span>PREVIOUS LAP / ACTUAL</span><b>{referenceLap ? lapTimeLabel(referenceLap.duration) : 'REFERENCE LINE'}</b><p>{referenceLap ? `Lap ${referenceLap.lap_number} / S1 ${referenceLap.sector_1.toFixed(3)}s / S2 ${referenceLap.sector_2.toFixed(3)}s` : 'Baseline run stored as the comparison reference.'}</p><small>{replayData?.session?.circuit_short_name || 'CIRCUIT'} / 2023 RACE</small></article>
       <article className="engineer-track-map">
         <svg viewBox="0 0 720 410" role="img" aria-label="Track comparison between previous and current run">
-          <path d="M104 208 C104 93 223 61 313 108 C395 37 557 77 595 170 C635 272 499 345 384 302 C298 371 131 339 107 257 C101 239 100 222 104 208Z" fill="none" stroke="#49615a" strokeWidth="21" strokeLinecap="round" />
-          <path d="M104 208 C104 93 223 61 313 108 C395 37 557 77 595 170 C635 272 499 345 384 302 C298 371 131 339 107 257 C101 239 100 222 104 208Z" fill="none" stroke="#dcebe6" strokeWidth="5" strokeLinecap="round" strokeDasharray="10 13" opacity=".78" />
-          <path d="M104 208 C104 93 223 61 313 108 C395 37 557 77 595 170 C635 272 499 345 384 302 C298 371 131 339 107 257 C101 239 100 222 104 208Z" fill="none" stroke={team.color} strokeWidth="5" strokeLinecap="round" strokeDasharray="132 40 64 360" />
-          <circle cx="577" cy="189" r="16" fill={team.color} /><text x="606" y="177" fill="#effff9" fontSize="16" fontFamily="DM Mono, monospace">DIFFERENCE</text><text x="606" y="200" fill="#95aaa3" fontSize="12" fontFamily="DM Mono, monospace">RADIO EVENT</text>
-          <text x="91" y="231" fill="#8fa49d" fontSize="12" fontFamily="DM Mono, monospace">START</text>
+          {track.length > 1 ? <>
+            <polyline points={trackPolyline} fill="none" stroke="#49615a" strokeWidth="21" strokeLinecap="round" strokeLinejoin="round" />
+            <polyline points={trackPolyline} fill="none" stroke="#dcebe6" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="10 13" opacity=".78" />
+            <polyline points={trackPolyline} fill="none" stroke={team.color} strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="132 40 64 360" />
+            {track[Math.floor(track.length * .58)] && <><circle cx={track[Math.floor(track.length * .58)].x} cy={track[Math.floor(track.length * .58)].y} r="16" fill={team.color} /><text x={track[Math.floor(track.length * .58)].x + 29} y={track[Math.floor(track.length * .58)].y - 12} fill="#effff9" fontSize="16" fontFamily="DM Mono, monospace">DIFFERENCE</text><text x={track[Math.floor(track.length * .58)].x + 29} y={track[Math.floor(track.length * .58)].y + 11} fill="#95aaa3" fontSize="12" fontFamily="DM Mono, monospace">RADIO EVENT</text></>}
+          </> : <text x="360" y="205" fill="#95aaa3" textAnchor="middle" fontSize="15" fontFamily="DM Mono, monospace">TRACK DATA LOADING</text>}
         </svg>
         <div className="track-legend"><span><i /> CURRENT RUN</span><span><i /> PREVIOUS RUN</span></div>
       </article>
-      <article className="engineer-note current"><span>CURRENT RUN</span><b>{issue}</b><p>“{report}”</p><small>{driverMood || 'REVIEW'} / RADIO-SUPPORTED CHANGE</small></article>
+      <article className="engineer-note current"><span>CURRENT LAP / ACTUAL</span><b>{currentLap ? lapTimeLabel(currentLap.duration) : issue}</b><p>{currentLap ? `Lap ${currentLap.lap_number} / Δ ${delta >= 0 ? '+' : ''}${delta?.toFixed(3)}s vs reference` : `“${report}”`}</p><small>{issue} / {driverMood || 'RADIO PENDING'}</small></article>
     </div>
-    <div className="engineer-conclusion"><span>ENGINEER EXPLANATION</span><p>{driverTranscript ? `At the highlighted point, the driver reported ${issue.toLowerCase()}. The current run is marked against the reference line so the engineer can inspect the change without claiming unavailable telemetry.` : 'Record a driver message during the lap to attach an explainable radio note to the highlighted difference.'}</p></div>
+    <div className="engineer-conclusion"><span>ENGINEER EXPLANATION</span><p>{currentLap && referenceLap ? `This is the real ${replayData.session.country_name} 2023 race circuit map and lap comparison for ${replayData.selected_driver.full_name}. Lap ${currentLap.lap_number} was ${Math.abs(delta).toFixed(3)}s ${delta > 0 ? 'slower' : 'faster'} than Lap ${referenceLap.lap_number}. ${driverTranscript ? `The live demo radio report was: “${report}”.` : 'Record a driver message during the lap to add your radio finding to this evidence.'}` : 'Real circuit data is loading. Record a driver message during the lap to attach an explainable radio note.'}</p></div>
   </section>
 }
 
@@ -580,6 +610,10 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
   const [lapState, setLapState] = useState('idle')
   const [lapProgress, setLapProgress] = useState(0)
   const [engineerMode, setEngineerMode] = useState(false)
+  const [replayCircuit, setReplayCircuit] = useState('bahrain')
+  const [replayData, setReplayData] = useState(null)
+  const [replayLoading, setReplayLoading] = useState(true)
+  const [replayError, setReplayError] = useState('')
 
   // Voice recorder instances
   const engineerRecorder = useVoiceRecorder()
@@ -618,6 +652,21 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
   }, [])
 
   useEffect(() => {
+    let cancelled = false
+    setReplayLoading(true)
+    setReplayError('')
+    fetch(apiUrl(`/api/replay?circuit=${replayCircuit}`))
+      .then((response) => {
+        if (!response.ok) throw new Error('Selected circuit data is unavailable')
+        return response.json()
+      })
+      .then((payload) => { if (!cancelled) setReplayData(payload) })
+      .catch((error) => { if (!cancelled) { setReplayData(null); setReplayError(error.message) } })
+      .finally(() => { if (!cancelled) setReplayLoading(false) })
+    return () => { cancelled = true }
+  }, [replayCircuit])
+
+  useEffect(() => {
     if (lapState !== 'running') return undefined
     const timer = window.setInterval(() => {
       setLapProgress((value) => Math.min(1, value + .009 + Math.random() * .004))
@@ -630,7 +679,7 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
   }, [lapProgress])
 
   const startLap = () => {
-    if (lapState === 'running') return
+    if (lapState === 'running' || !replayData) return
     setEngineerMode(false)
     setLapProgress(0)
     setLapState('running')
@@ -785,7 +834,7 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
         </>
       )}
       <StepHeader step={3} title={`${team.name.toUpperCase()} / COCKPIT LINK`} onBack={onBack} />
-      <div className="cockpit-topline"><span><i /> TEAM PROFILE LOCKED</span><span>SCROLL TO ENGAGE</span></div>
+      <div className="cockpit-topline"><span><i /> TEAM PROFILE LOCKED</span><label className="replay-circuit-picker">REPLAY CIRCUIT <select value={replayCircuit} onChange={(event) => { setReplayCircuit(event.target.value); setLapState('idle'); setLapProgress(0); setEngineerMode(false) }} disabled={lapState === 'running'}><option value="bahrain">BAHRAIN / 2023</option><option value="qatar">QATAR / 2023</option><option value="singapore">SINGAPORE / 2023</option></select></label></div>
 
       {/* Intro copy fades out as wheel locks */}
       <div className="sequence-copy" style={{ opacity: introOpacity, transform: `translateY(${-progress * 65}px)` }}>
@@ -810,6 +859,8 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
           showLapControl
           lapState={lapState}
           lapProgress={lapProgress}
+          lapReady={!replayLoading && Boolean(replayData)}
+          lapAvailabilityLabel={replayError ? 'DATA UNAVAILABLE' : replayLoading ? 'LOADING REAL DATA' : undefined}
           onStartLap={startLap}
         />
       </div>
@@ -825,6 +876,7 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
         engineerTranscript={engineerTranscript}
         driverMood={driverMood}
         driverIssue={driverIssue}
+        replayData={replayData}
         onEngineerMode={() => setEngineerMode(true)}
       />}
 
@@ -849,7 +901,7 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
       </div>
 
       <div className="scroll-marker" style={{ opacity: introOpacity }}>SCROLL <span>↓</span></div>
-      {engineerMode && <EngineerMode team={team} driverTranscript={driverTranscript} driverIssue={driverIssue} driverMood={driverMood} onClose={() => setEngineerMode(false)} />}
+      {engineerMode && <EngineerMode team={team} driverTranscript={driverTranscript} driverIssue={driverIssue} driverMood={driverMood} replayData={replayData} onClose={() => setEngineerMode(false)} />}
     </div>
   </section>
 }

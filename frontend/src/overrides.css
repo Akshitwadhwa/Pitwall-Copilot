@@ -1004,6 +1004,9 @@
 }
 
 .cockpit-topline i { display: inline-block; width: 6px; height: 6px; margin-right: 8px; border-radius: 50%; background: var(--team); box-shadow: 0 0 8px var(--team); }
+.replay-circuit-picker { display: flex; align-items: center; gap: 8px; color: #91a8a0; font: 8px 'DM Mono', monospace; letter-spacing: .1em; }
+.replay-circuit-picker select { height: 27px; padding: 0 8px; border: 1px solid color-mix(in srgb, var(--team) 42%, rgba(222,251,241,.18)); color: #d9e9e3; background: rgba(4, 11, 12, .84); font: 8px 'DM Mono', monospace; outline: none; }
+.replay-circuit-picker select:disabled { opacity: .55; }
 
 .sequence-copy {
   position: absolute;

@@ -8,6 +8,7 @@ import { transcribeAudio } from './src/transcription.mjs'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 const examples = JSON.parse(await readFile(path.join(root, 'data/hf-slice.json'), 'utf8'))
+const nightRaceData = JSON.parse(await readFile(path.join(root, 'data/openf1-2023-night-races.json'), 'utf8'))
 const PORT = Number(process.env.PORT || 8787)
 const HF_MODEL = 'facebook/bart-large-mnli'
 
@@ -56,6 +57,23 @@ function engineerReplyForMood(mood) {
   if (mood === 'FRUSTRATED') return 'COPY. WE HEAR YOU. DESCRIBE THE ISSUE.'
   if (mood === 'URGENT') return 'UNDERSTOOD. RADIO PRIORITY. GO AHEAD.'
   return 'COPY. GO AHEAD.'
+}
+
+function replayComparison(race) {
+  const current = race.comparison.current
+  const driverLaps = race.laps.filter((lap) => lap.driver_number === race.selected_driver.driver_number
+    && Number.isFinite(lap.duration) && lap.duration > 50 && !lap.pit_out_lap
+    && Number.isFinite(lap.sector_1) && Number.isFinite(lap.sector_2) && Number.isFinite(lap.sector_3))
+  const reference = driverLaps
+    .filter((lap) => lap.lap_number !== current.lap_number)
+    .sort((left, right) => Math.abs(left.duration - current.duration) - Math.abs(right.duration - current.duration)
+      || Math.abs(left.lap_number - current.lap_number) - Math.abs(right.lap_number - current.lap_number))[0]
+  return {
+    current,
+    reference: reference || race.comparison.reference,
+    delta_seconds: Number((current.duration - (reference || race.comparison.reference).duration).toFixed(3)),
+    selection_rule: 'Fastest clean lap compared with the nearest valid lap-time reference.',
+  }
 }
 
 // ─── Deterministic driver analysis ────────────────────────────────────────────
@@ -194,6 +212,45 @@ export async function handler(request, response) {
       model: HF_MODEL,
       whisperModel: 'openai/whisper-large-v3',
       features: ['mood-detection', 'multi-keyword', 'voice-transcription'],
+    })
+  }
+
+  // GET /api/replay/circuits — available real historical replay sources.
+  if (request.method === 'GET' && request.url === '/api/replay/circuits') {
+    return json(response, 200, Object.entries(nightRaceData.races).map(([id, race]) => ({
+      id,
+      circuit: race.session.circuit_short_name,
+      country: race.session.country_name,
+      year: race.session.year,
+      selected_driver: race.selected_driver,
+      comparison: replayComparison(race),
+    })))
+  }
+
+  // GET /api/replay?circuit=bahrain
+  // Returns a compact payload for rendering real lap times and the circuit map.
+  if (request.method === 'GET' && request.url?.startsWith('/api/replay')) {
+    const circuit = new URL(request.url, 'http://localhost').searchParams.get('circuit') || 'bahrain'
+    const race = nightRaceData.races[circuit.toLowerCase()]
+    if (!race) return json(response, 404, { error: 'circuit not loaded', available: Object.keys(nightRaceData.races) })
+
+    const trackPosition = Array.isArray(race.track_position)
+      ? race.track_position
+      : race.track_position.current
+    const carData = Array.isArray(race.car_data)
+      ? race.car_data
+      : race.car_data.current
+
+    return json(response, 200, {
+      source: nightRaceData.source,
+      session: race.session,
+      selected_driver: race.selected_driver,
+      comparison: replayComparison(race),
+      track_position: trackPosition,
+      car_data: carData,
+      weather: race.weather,
+      radio_clips: race.radio_clips,
+      laps: race.laps.filter((lap) => lap.driver_number === race.selected_driver.driver_number),
     })
   }
 
