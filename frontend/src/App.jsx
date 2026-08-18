@@ -12,6 +12,7 @@ import audiDriverOne from './assets/Audi-Driver-1.jpeg'
 import audiDriverTwo from './assets/Audi-Driver-2.jpeg'
 import mclarenDriverOne from './assets/mclaren-driver- 1.jpg.webp'
 import mclarenDriverTwo from './assets/mclaren-driver-2.jpg.webp'
+import LapReplay from './LapReplay'
 
 const teams = [
   {
@@ -1255,7 +1256,7 @@ function App() {
         <article className="briefing-data">
           <p className="briefing-summary">{selected.summary}</p>
           <div className="stat-grid"><div><span>CHAMPIONSHIP</span><AnimatedStat value={selected.position} /></div><div><span>POINTS</span><AnimatedStat value={selected.points} /></div><div><span>GP PODIUMS</span><AnimatedStat value={selected.podiums} /></div><div><span>ROUNDS</span><AnimatedStat value={selected.races} /></div></div>
-          <div className="briefing-actions"><button className="primary-action next-action" onClick={() => goTo('cockpit')}>ENTER COCKPIT LINK <ArrowUpRight size={17} /></button><span><i /> RADIO DESK READY / TEAM CHANNEL LOCKED</span></div>
+          <div className="briefing-actions"><div><button className="primary-action next-action" onClick={() => goTo('cockpit')}>ENTER COCKPIT LINK <ArrowUpRight size={17} /></button><button className="replay-entry" onClick={() => goTo('replay')}>OPEN LAP REPLAY <ChevronRight size={15} /></button></div><span><i /> RADIO DESK READY / TEAM CHANNEL LOCKED</span></div>
           <div className="copilot-note"><SparkleIcon size={17} /><div><span>COPILOT FOCUS</span><p>{selected.signal}</p></div></div>
           {selected.audioIssues?.length > 0 && <section className="audio-issues"><div className="audio-issues-heading"><div><span>RADIO ISSUES / SIGNAL HISTORY</span><small>WHY THIS TEAM CHANNEL NEEDS A COPILOT</small></div><i /></div><p className="audio-issues-intro">A compact season log of communication friction. Each event becomes a priority for the live radio desk.</p><div className="audio-issue-list">{selected.audioIssues.map((item, index) => <div className="audio-issue" key={item.event}><div className="audio-issue-index"><b>0{index + 1}</b><span>{item.event}</span></div><div className="audio-issue-copy"><strong>{item.label}</strong><p>{item.issue}</p></div><span className="issue-wave" aria-hidden="true"><i /><i /><i /><i /><i /></span></div>)}</div></section>}
           <div className="source-line">SEASON SNAPSHOT: FORMULA1.COM RESULTS / CHECKED 10 AUG 2026</div>
@@ -1266,6 +1267,7 @@ function App() {
 
     {page === 'cockpit' && selected && <CockpitLink team={selected} onBack={() => goTo('teams')} onStart={() => goTo('radio')} onDriverSpeak={startRadioAudio} />}
     {page === 'radio' && selected && <RadioDesk team={selected} onBack={() => goTo('cockpit')} />}
+    {page === 'replay' && selected && <LapReplay team={selected} onBack={() => goTo('briefing')} onPlayRadio={startRadioAudio} />}
   </main>
 }
 
