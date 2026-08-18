@@ -52,11 +52,65 @@ function turnFromMessage(message) {
   return match ? `T${match[1]}` : ''
 }
 
-function engineerReplyForMood(mood) {
-  if (mood === 'ANGRY') return 'COPY. STAY WITH ME. REPORT THE CAR ISSUE.'
-  if (mood === 'FRUSTRATED') return 'COPY. WE HEAR YOU. DESCRIBE THE ISSUE.'
-  if (mood === 'URGENT') return 'UNDERSTOOD. RADIO PRIORITY. GO AHEAD.'
-  return 'COPY. GO AHEAD.'
+// The Copilot must never pretend to make a race-strategy decision. It gives the
+// driver a short, explainable acknowledgement / setup prompt and leaves a human
+// engineer free to override it. The issue itself comes from HF retrieval or the
+// zero-shot classifier above; this layer constrains that result to the small
+// driver-display vocabulary used by the F1-style screen.
+function autoEngineerResponse(issue, message, mood) {
+  const turn = turnFromMessage(message)
+  const atTurn = turn ? ` at ${turn}` : ''
+  const displayTurn = turn ? ` ${turn}` : ''
+
+  const responses = {
+    'REAR SLIP': {
+      reply: `Copy. Rear slip${atTurn}. Short-shift and reduce exit throttle.`,
+      display: `SHORT SHIFT${displayTurn}`,
+      action: 'Short-shift; smooth the throttle on exit.',
+    },
+    'FRONT GRIP': {
+      reply: `Copy. Front grip loss${atTurn}. Avoid the kerb and manage the entry.`,
+      display: `MANAGE ENTRY${displayTurn}`,
+      action: 'Avoid the kerb; protect front grip into the corner.',
+    },
+    'BRAKING': {
+      reply: `Copy. Brake issue${atTurn}. Brake earlier and keep the pedal release smooth.`,
+      display: `BRAKE EARLY${displayTurn}`,
+      action: 'Brake earlier and release progressively.',
+    },
+    'RADIO FAILURE': {
+      reply: 'Copy. Radio check. Repeat only the critical car issue.',
+      display: 'RADIO CHECK',
+      action: 'Use short repeat-back messages until signal is clear.',
+    },
+    'RAIN REPORT': {
+      reply: `Copy. Wet-condition report${atTurn}. Keep us updated on grip and standing water.`,
+      display: `REPORT GRIP${displayTurn}`,
+      action: 'Continue reporting grip changes and standing water.',
+    },
+    'RACE CONTROL': {
+      reply: 'Copy. Race-control situation acknowledged. Follow the delta and wait for the next call.',
+      display: 'HOLD DELTA',
+      action: 'Follow the delta; await the next pit-wall instruction.',
+    },
+    'BLUE FLAG': {
+      reply: 'Copy. Blue flag acknowledged. Give the car ahead a clean pass at the next safe point.',
+      display: 'BLUE FLAG',
+      action: 'Yield safely at the next appropriate point.',
+    },
+    'PIT REQUEST': {
+      reply: 'Copy. Pit request received. We are checking the window; stay on the current plan.',
+      display: 'STAY ON PLAN',
+      action: 'Await manual pit-wall confirmation before changing strategy.',
+    },
+  }
+
+  if (responses[issue]) return { ...responses[issue], source: 'issue-aware-auto-response' }
+
+  if (mood === 'ANGRY') return { reply: 'Copy. We hear you. Give us the car issue and corner.', display: 'REPORT ISSUE', action: 'State the issue and the affected corner.', source: 'mood-safe-response' }
+  if (mood === 'FRUSTRATED') return { reply: 'Copy. Keep the message short: issue, corner, then severity.', display: 'ISSUE / CORNER', action: 'Report the issue, corner, and severity.', source: 'mood-safe-response' }
+  if (mood === 'URGENT') return { reply: 'Understood. Priority channel open — state the critical issue now.', display: 'PRIORITY RADIO', action: 'Use the radio for the critical issue only.', source: 'mood-safe-response' }
+  return { reply: 'Copy. State the car issue and the affected corner.', display: 'REPORT ISSUE', action: 'State the issue and affected corner.', source: 'safe-default-response' }
 }
 
 function replayComparison(race) {
@@ -141,8 +195,6 @@ async function analyseDriver(message, team, audioFeatures) {
       ? 'hub-dataset-retrieval'
       : 'safe-local-fallback',
   }
-  result.engineerReply = engineerReplyForMood(result.mood)
-
   // Override issue/keyword if HF/retrieval gave us a strong label
   if (label && /rear slip/.test(label)) {
     const turn = turnFromMessage(message)
@@ -154,6 +206,13 @@ async function analyseDriver(message, team, audioFeatures) {
     result.issue = 'FRONT GRIP'
     result.keyword = `FRONT GRIP${turn ? ` ${turn}` : ''}`
   }
+
+  const autoResponse = autoEngineerResponse(result.issue, message, result.mood)
+  result.engineerReply = autoResponse.reply
+  result.driverDisplay = autoResponse.display
+  result.recommendedAction = autoResponse.action
+  result.responseMode = 'AUTO COPILOT — HUMAN OVERRIDE AVAILABLE'
+  result.responseSource = autoResponse.source
 
   return result
 }
@@ -211,7 +270,7 @@ export async function handler(request, response) {
       examples: examples.length,
       model: HF_MODEL,
       whisperModel: 'openai/whisper-large-v3',
-      features: ['mood-detection', 'multi-keyword', 'voice-transcription'],
+      features: ['mood-detection', 'multi-keyword', 'voice-transcription', 'auto-engineer-reply'],
     })
   }
 
