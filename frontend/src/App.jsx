@@ -1119,7 +1119,9 @@ function analyseDriverMessage(message) {
   else if (/rear|slid|throttle|traction|snap/.test(text)) state = 'FRUSTRATED'
 
   if (/rear|slid|throttle|traction|snap|oversteer/.test(text)) return { state, issue: 'REAR SLIP', keyword: `REAR SLIP${turn ? ` ${turn}` : ''}`, confidence: '92%' }
-  if (/front|tyre|tire|understeer|grip/.test(text)) return { state, issue: 'FRONT GRIP', keyword: `FRONT GRIP${turn ? ` ${turn}` : ''}`, confidence: '88%' }
+  if (/front|understeer|front grip/.test(text)) return { state, issue: 'FRONT GRIP', keyword: `FRONT GRIP${turn ? ` ${turn}` : ''}`, confidence: '88%' }
+  if (/wheel|tyre|tire/.test(text)) return { state, issue: 'TYRE / WHEEL', keyword: `TYRE CHECK${turn ? ` ${turn}` : ''}`, confidence: '76%' }
+  if (/car|balance|handling|unstable/.test(text)) return { state, issue: 'CAR BALANCE', keyword: `BALANCE CHECK${turn ? ` ${turn}` : ''}`, confidence: '66%' }
   if (/hear|radio|mic|microphone|signal|static/.test(text)) return { state: 'URGENT', issue: 'RADIO FAILURE', keyword: 'RADIO FAIL', confidence: '96%' }
   if (/safety car|vsc|yellow/.test(text)) return { state: 'FOCUSED', issue: 'RACE CONTROL', keyword: 'SAFETY CAR', confidence: '97%' }
   if (/box|pit|stop|come in/.test(text)) return { state: 'FOCUSED', issue: 'PIT REQUEST', keyword: 'BOX', confidence: '94%' }
@@ -1139,6 +1141,8 @@ function autoEngineerResponseLocal(issue, message, mood) {
   const responses = {
     'REAR SLIP': { reply: `Copy. Rear slip${atTurn}. Short-shift and reduce exit throttle.`, display: `SHORT SHIFT${displayTurn}`, action: 'Short-shift; smooth the throttle on exit.' },
     'FRONT GRIP': { reply: `Copy. Front grip loss${atTurn}. Avoid the kerb and manage the entry.`, display: `MANAGE ENTRY${displayTurn}`, action: 'Avoid the kerb; protect front grip into the corner.' },
+    'TYRE / WHEEL': { reply: `Copy. Tyre or wheel concern${atTurn}. Confirm front or rear, then describe the grip change.`, display: `TYRE CHECK${displayTurn}`, action: 'Confirm whether the issue is at the front or rear before changing setup.' },
+    'CAR BALANCE': { reply: `Copy. Balance issue${atTurn}. Confirm whether it is front or rear limited.`, display: `BALANCE CHECK${displayTurn}`, action: 'Confirm the affected axle and corner before a manual engineer response.' },
     'BRAKING': { reply: `Copy. Brake issue${atTurn}. Brake earlier and keep the release smooth.`, display: `BRAKE EARLY${displayTurn}`, action: 'Brake earlier and release progressively.' },
     'RADIO FAILURE': { reply: 'Copy. Radio check. Repeat only the critical car issue.', display: 'RADIO CHECK', action: 'Use short repeat-back messages until signal is clear.' },
     'PIT REQUEST': { reply: 'Copy. Pit request received. We are checking the window; stay on the current plan.', display: 'STAY ON PLAN', action: 'Await manual pit-wall confirmation before changing strategy.' },

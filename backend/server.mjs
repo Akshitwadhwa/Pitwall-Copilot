@@ -73,6 +73,16 @@ function autoEngineerResponse(issue, message, mood) {
       display: `MANAGE ENTRY${displayTurn}`,
       action: 'Avoid the kerb; protect front grip into the corner.',
     },
+    'TYRE / WHEEL': {
+      reply: `Copy. Tyre or wheel concern${atTurn}. Confirm front or rear, then describe the grip change.`,
+      display: `TYRE CHECK${displayTurn}`,
+      action: 'Confirm whether the issue is at the front or rear before changing setup.',
+    },
+    'CAR BALANCE': {
+      reply: `Copy. Balance issue${atTurn}. Confirm whether it is front or rear limited.`,
+      display: `BALANCE CHECK${displayTurn}`,
+      action: 'Confirm the affected axle and corner before a manual engineer response.',
+    },
     'BRAKING': {
       reply: `Copy. Brake issue${atTurn}. Brake earlier and keep the pedal release smooth.`,
       display: `BRAKE EARLY${displayTurn}`,
@@ -136,7 +146,9 @@ function deterministicDriverAnalysis(message) {
   const text = message.toLowerCase()
   const turn = turnFromMessage(message)
   if (/rear|slid|throttle|traction/.test(text)) return { issue: 'REAR SLIP', keyword: `REAR SLIP${turn ? ` ${turn}` : ''}`, confidence: 0.92 }
-  if (/front|tyre|tire|understeer/.test(text)) return { issue: 'FRONT GRIP', keyword: `FRONT GRIP${turn ? ` ${turn}` : ''}`, confidence: 0.88 }
+  if (/front|understeer/.test(text)) return { issue: 'FRONT GRIP', keyword: `FRONT GRIP${turn ? ` ${turn}` : ''}`, confidence: 0.88 }
+  if (/wheel|tyre|tire/.test(text)) return { issue: 'TYRE / WHEEL', keyword: `TYRE CHECK${turn ? ` ${turn}` : ''}`, confidence: 0.76 }
+  if (/car|balance|handling|unstable/.test(text)) return { issue: 'CAR BALANCE', keyword: `BALANCE CHECK${turn ? ` ${turn}` : ''}`, confidence: 0.66 }
   if (/hear|radio|mic|microphone/.test(text)) return { issue: 'RADIO FAILURE', keyword: 'RADIO FAIL', confidence: 0.96 }
   if (/safety car/.test(text)) return { issue: 'RACE CONTROL', keyword: 'SAFETY CAR', confidence: 0.97 }
   if (/blue flag/.test(text)) return { issue: 'BLUE FLAG', keyword: 'BLUE FLAG', confidence: 0.97 }
