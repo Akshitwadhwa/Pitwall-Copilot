@@ -260,7 +260,7 @@ function LiveRadioCard({ team, onOpen, signalMessage = '', mood = '', issue = ''
 // ─── F1 Wheel — hold-to-speak buttons ────────────────────────────────────────
 // Left button = ENGINEER RADIO, Right button = DRIVER RADIO (swapped per spec)
 
-function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, engineerRecording, driverRecording, onEngineerDown, onEngineerUp, onDriverDown, onDriverUp, showLapControl = false, lapState = 'idle', lapProgress = 0, lapDurationSeconds = 0, lapReady = true, lapAvailabilityLabel = '', onStartLap }) {
+function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, engineerRecording, driverRecording, onEngineerDown, onEngineerUp, onDriverDown, onDriverUp, lapState = 'idle', lapReady = true, lapAvailabilityLabel = '', onStartLap, onStopLap }) {
   const accent = team.color
   const secondary = team.accent
   const wheelBody = team.wheelBody || '#202c2d'
@@ -284,11 +284,15 @@ function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, enginee
 
   const currentKw = kwVisible && keywords?.[kwIndex] ? keywords[kwIndex] : null
   const mode = engineerRecording ? 'engineer' : driverRecording ? 'driver' : 'idle'
-  const lapControlScreen = showLapControl && !currentKw && !engineerRecording && !driverRecording
-  const lapLabel = lapState === 'running'
-    ? `LAP LIVE / ${lapTimeLabel(lapProgress * lapDurationSeconds)}`
-    : lapState === 'finished' ? 'LAP COMPLETE' : 'START LAP'
-  const lapHint = lapState === 'running' ? 'LIVE RUNNING' : lapState === 'finished' ? 'OPEN ENGINEER MODE' : !lapReady ? lapAvailabilityLabel || 'LOADING REAL DATA' : controlsEnabled ? 'PRESS TO BEGIN' : 'LOCK WHEEL FIRST'
+  const engineerModeReady = controlsEnabled && lapReady && (lapState === 'idle' || lapState === 'running') && !engineerRecording && !driverRecording
+  const engineerModeButtonLabel = lapState === 'running'
+    ? 'STOP LAP'
+    : engineerModeReady
+    ? 'START LAP'
+    : !lapReady ? 'LOAD DATA'
+    : !controlsEnabled ? 'LOCK WHEEL'
+    : lapState === 'running' ? 'LAP ACTIVE'
+    : 'RUN COMPLETE'
 
   // Live F1 telemetry dashboard state declared unconditionally at the top level
   const [telemetry, setTelemetry] = useState({
@@ -412,21 +416,7 @@ function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, enginee
       <rect x="371" y="220" width="258" height="145" rx="10" fill={currentKw ? '#ffffff' : '#081012'} stroke={currentKw ? '#ffffff' : accent} strokeOpacity={currentKw ? '1' : '.65'} strokeWidth="3" style={{ transition: 'fill .3s, stroke .3s' }} />
       <rect x="389" y="239" width="222" height="10" rx="5" fill={currentKw ? '#cccccc' : 'url(#screenGlow)'} opacity=".78" style={{ transition: 'fill .3s' }} />
 
-      {lapControlScreen ? (
-        <g
-          role="button"
-          tabIndex={controlsEnabled ? '0' : '-1'}
-          aria-disabled={!controlsEnabled || !lapReady}
-          aria-label={!lapReady ? lapAvailabilityLabel || 'Loading real lap data' : controlsEnabled ? 'Start lap simulation' : 'Start lap locked until wheel is engaged'}
-          style={{ cursor: controlsEnabled && lapReady ? 'pointer' : 'not-allowed' }}
-          onClick={() => controlsEnabled && lapReady && onStartLap?.()}
-          onKeyDown={(event) => controlsEnabled && lapReady && (event.key === 'Enter' || event.key === ' ') && onStartLap?.()}
-        >
-          <rect x="380" y="258" width="240" height="82" rx="7" fill={lapState === 'running' ? accent : '#101819'} stroke={lapState === 'running' ? accent : wheelTrim} strokeOpacity={controlsEnabled && lapReady ? '.9' : '.35'} strokeWidth="1.5" />
-          <text x="500" y="292" fill={lapState === 'running' ? '#06100e' : accent} textAnchor="middle" fontSize="21" fontWeight="700" fontFamily="Space Grotesk, sans-serif" letterSpacing="-1">{lapLabel}</text>
-          <text x="500" y="318" fill={lapState === 'running' ? '#16352c' : '#91aaa1'} textAnchor="middle" fontSize="8" fontFamily="DM Mono, monospace" letterSpacing="1.7">{lapHint}</text>
-        </g>
-      ) : currentKw ? (() => {
+      {currentKw ? (() => {
         const words = currentKw.split(' ')
         if (words.length === 3) {
           return (
@@ -498,7 +488,22 @@ function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, enginee
       <circle cx="729" cy="255" r="48" fill="#121d1e" stroke={secondary} strokeWidth="4" /><text x="729" y="261" textAnchor="middle" fill={secondary} fontSize="22" fontFamily="DM Mono">THR</text>
       <circle cx="278" cy="379" r="42" fill="#151f20" stroke="#d85d5a" strokeWidth="5" /><text x="278" y="386" textAnchor="middle" fill="#f4aca0" fontSize="17" fontFamily="DM Mono">DIFF</text>
       <circle cx="722" cy="379" r="42" fill="#151f20" stroke="#5fc6aa" strokeWidth="5" /><text x="722" y="386" textAnchor="middle" fill="#a9f5df" fontSize="17" fontFamily="DM Mono">GRP</text>
-      <circle cx="500" cy="414" r="27" fill="#111b1c" stroke="#83a79b" strokeWidth="3" /><text x="500" y="420" textAnchor="middle" fill="#dcfff4" fontSize="15" fontFamily="DM Mono">N</text>
+      <g
+        className={`wheel-hit ${engineerModeReady ? 'wheel-engineer-mode' : 'is-disabled'}`}
+        role="button"
+        tabIndex={engineerModeReady ? '0' : '-1'}
+        aria-disabled={!engineerModeReady}
+        aria-label={!lapReady ? lapAvailabilityLabel || 'Loading lap data' : lapState === 'running' ? 'Stop lap replay and open Engineer Mode' : lapState === 'finished' ? 'Open Engineer Mode from the completed lap panel' : controlsEnabled ? 'Start lap replay in Engineer Mode' : 'Engineer Mode locked until wheel is engaged'}
+        style={{ cursor: engineerModeReady ? 'pointer' : 'not-allowed' }}
+        onClick={() => engineerModeReady && (lapState === 'running' ? onStopLap?.() : onStartLap?.())}
+        onKeyDown={(event) => engineerModeReady && (event.key === 'Enter' || event.key === ' ') && (lapState === 'running' ? onStopLap?.() : onStartLap?.())}
+      >
+        <circle cx="500" cy="415" r="34" fill={engineerModeReady ? accent : '#111b1c'} stroke={engineerModeReady ? '#f4fff9' : '#83a79b'} strokeWidth={engineerModeReady ? '3.5' : '3'} />
+        {engineerModeReady && <circle cx="500" cy="415" r="40" fill="none" stroke={accent} strokeWidth="2" opacity=".3"><animate attributeName="r" values="34;43;34" dur="1.4s" repeatCount="indefinite" /><animate attributeName="opacity" values=".45;.05;.45" dur="1.4s" repeatCount="indefinite" /></circle>}
+        <text x="500" y="409" textAnchor="middle" fill={engineerModeReady ? '#06100e' : '#dcfff4'} fontSize="10" fontWeight="700" fontFamily="DM Mono">ENG</text>
+        <text x="500" y="425" textAnchor="middle" fill={engineerModeReady ? '#06100e' : '#91aaa1'} fontSize="6.8" fontWeight="700" fontFamily="DM Mono" letterSpacing=".6">{engineerModeButtonLabel}</text>
+      </g>
+      <text x="500" y="462" textAnchor="middle" fill={engineerModeReady ? accent : '#718780'} fontSize="7" fontFamily="DM Mono" letterSpacing="1.3">ENGINEER MODE</text>
 
       {/* LEFT = ENGINEER RADIO, RIGHT = DRIVER RADIO (swapped per spec) */}
       {holdButton(128, 139, 'ENGINEER RADIO', engineerRecording, onEngineerDown, onEngineerUp)}
@@ -622,33 +627,68 @@ function LapRunConsole({ team, lapState, lapProgress, driverTranscript, engineer
   </section>
 }
 
-function EngineerMode({ team, driverTranscript, driverIssue, driverMood, radioEvents, replayData, onClose }) {
-  const issue = driverIssue || 'NO ISSUE LOGGED'
+function EngineerMode({ team, driverTranscript, driverIssue, driverMood, radioEvents, autoEngineerResponse, replayData, stoppedEarly = false, stoppedAt = 0, onClose }) {
+  const issue = driverIssue || 'AWAITING RADIO REPORT'
   const report = driverTranscript || 'No driver radio has been captured for this run yet.'
-  const track = normaliseTrackPoints(replayData?.track_position, 720, 410, 54)
-  const trackPolyline = track.map((point) => `${point.x},${point.y}`).join(' ')
   const currentLap = replayData?.comparison?.current
   const referenceLap = replayData?.comparison?.reference
   const delta = replayData?.comparison?.delta_seconds
+  const track = normaliseTrackPoints(replayData?.track_position, 860, 560, 64)
+  const trackPolyline = track.map((point) => `${point.x},${point.y}`).join(' ')
+  const radioEvent = radioEvents?.at(-1)
+  const markerProgress = radioEvent?.progress ?? .58
+  const marker = track[Math.min(track.length - 1, Math.max(0, Math.round(markerProgress * Math.max(0, track.length - 1))))]
+  const carData = replayData?.car_data || []
+  const telemetry = carData[Math.min(carData.length - 1, Math.max(0, Math.round(markerProgress * Math.max(0, carData.length - 1))))]
+  const weather = replayData?.weather?.at(-1)
+  const tyreStatus = /TYRE|WHEEL|FRONT|REAR|GRIP/.test(issue) ? `${issue} / REVIEW` : 'NO TYRE FLAG'
+  const strategyStatus = stoppedEarly ? 'EARLY REVIEW' : radioEvent ? 'RADIO REVIEW' : 'BASELINE PLAN'
+  const driverName = replayData?.selected_driver?.full_name || team.drivers?.[0]?.name || 'DRIVER'
+  const deltaLabel = Number.isFinite(delta) ? `${delta >= 0 ? '+' : ''}${delta.toFixed(3)}s` : '—'
 
-  return <section className="engineer-mode" role="dialog" aria-modal="true" aria-label="Engineer Mode track comparison">
-    <div className="engineer-mode-top"><div><span>ENGINEER MODE / RUN DIFFERENCE</span><h2>Track comparison</h2></div><button type="button" onClick={onClose}><X size={16} /> CLOSE</button></div>
-    <div className="engineer-mode-grid">
-      <article className="engineer-note"><span>PREVIOUS LAP / ACTUAL</span><b>{referenceLap ? lapTimeLabel(referenceLap.duration) : 'REFERENCE LINE'}</b><p>{referenceLap ? `Lap ${referenceLap.lap_number} / S1 ${referenceLap.sector_1.toFixed(3)}s / S2 ${referenceLap.sector_2.toFixed(3)}s` : 'Baseline run stored as the comparison reference.'}</p><small>{replayData?.session?.circuit_short_name || 'CIRCUIT'} / 2023 RACE</small></article>
-      <article className="engineer-track-map">
-        <svg viewBox="0 0 720 410" role="img" aria-label="Track comparison between previous and current run">
+  return <section className="engineer-mode engineer-console" role="dialog" aria-modal="true" aria-label="Engineer Mode track comparison">
+    <header className="engineer-mode-top">
+      <div><span>ENGINEER MODE / LIVE REVIEW</span><h2>PIT WALL</h2></div>
+      <div className="engineer-session-meta"><span>{replayData?.session?.circuit_short_name || 'CIRCUIT'} / 2023 RACE</span><b>{driverName.toUpperCase()}</b></div>
+      <button type="button" onClick={onClose}><X size={16} /> CLOSE</button>
+    </header>
+
+    <div className="engineer-console-grid">
+      <section className="engineer-map-pane">
+        <div className="map-pane-head"><span><i /> TRACK MAP / RADIO POSITION</span><b>{stoppedEarly ? `STOPPED ${lapTimeLabel(stoppedAt)}` : 'RUN REVIEW'}</b></div>
+        <svg viewBox="0 0 860 560" role="img" aria-label="Circuit map with the driver radio issue highlighted">
           {track.length > 1 ? <>
-            <polyline points={trackPolyline} fill="none" stroke="#49615a" strokeWidth="21" strokeLinecap="round" strokeLinejoin="round" />
-            <polyline points={trackPolyline} fill="none" stroke="#dcebe6" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="10 13" opacity=".78" />
-            <polyline points={trackPolyline} fill="none" stroke={team.color} strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="132 40 64 360" />
-            {track[Math.floor(track.length * .58)] && <><circle cx={track[Math.floor(track.length * .58)].x} cy={track[Math.floor(track.length * .58)].y} r="16" fill={team.color} /><text x={track[Math.floor(track.length * .58)].x + 29} y={track[Math.floor(track.length * .58)].y - 12} fill="#effff9" fontSize="16" fontFamily="DM Mono, monospace">DIFFERENCE</text><text x={track[Math.floor(track.length * .58)].x + 29} y={track[Math.floor(track.length * .58)].y + 11} fill="#95aaa3" fontSize="12" fontFamily="DM Mono, monospace">RADIO EVENT</text></>}
-          </> : <text x="360" y="205" fill="#95aaa3" textAnchor="middle" fontSize="15" fontFamily="DM Mono, monospace">TRACK DATA LOADING</text>}
+            <polyline points={trackPolyline} fill="none" stroke="#263a36" strokeWidth="27" strokeLinecap="round" strokeLinejoin="round" />
+            <polyline points={trackPolyline} fill="none" stroke="#dcebe6" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="11 14" opacity=".72" />
+            <polyline points={trackPolyline} fill="none" stroke={team.color} strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="168 54 68 500" />
+            {marker && <>
+              <circle cx={marker.x} cy={marker.y} r="28" fill={team.color} opacity=".15"><animate attributeName="r" values="20;35;20" dur="1.8s" repeatCount="indefinite" /></circle>
+              <circle cx={marker.x} cy={marker.y} r="15" fill={team.color} stroke="#f0fff9" strokeWidth="4" />
+              <path d={`M ${marker.x + 16} ${marker.y - 16} L ${marker.x + 66} ${marker.y - 58}`} fill="none" stroke={team.color} strokeWidth="2" />
+              <rect x={Math.min(marker.x + 66, 650)} y={Math.max(marker.y - 105, 20)} width="178" height="58" rx="5" fill="#08100f" stroke={team.color} strokeWidth="1" />
+              <text x={Math.min(marker.x + 77, 661)} y={Math.max(marker.y - 82, 43)} fill={team.color} fontSize="10" fontFamily="DM Mono, monospace" letterSpacing="1.2">DRIVER REPORT</text>
+              <text x={Math.min(marker.x + 77, 661)} y={Math.max(marker.y - 61, 64)} fill="#effff9" fontSize="15" fontWeight="700" fontFamily="Space Grotesk, sans-serif">{issue}</text>
+            </>}
+          </> : <text x="430" y="280" fill="#95aaa3" textAnchor="middle" fontSize="15" fontFamily="DM Mono, monospace">TRACK DATA LOADING</text>}
         </svg>
-        <div className="track-legend"><span><i /> CURRENT RUN</span><span><i /> PREVIOUS RUN</span></div>
-      </article>
-      <article className="engineer-note current"><span>CURRENT LAP / ACTUAL</span><b>{currentLap ? lapTimeLabel(currentLap.duration) : issue}</b><p>{currentLap ? `Lap ${currentLap.lap_number} / Δ ${delta >= 0 ? '+' : ''}${delta?.toFixed(3)}s vs reference` : `“${report}”`}</p><small>{issue} / {driverMood || 'RADIO PENDING'}</small></article>
+        <div className="map-event-log"><span>RADIO LOG</span><b>{driverName} / {driverMood || 'NO EMOTION SIGNAL'} / {issue}</b><p>“{report}”</p></div>
+        <div className="track-legend"><span><i /> CURRENT LAP</span><span><i /> REFERENCE LAP</span><span><i /> RADIO ISSUE</span></div>
+      </section>
+
+      <aside className="engineer-data-pane">
+        <div className="data-pane-head"><span><i /> PIT WALL DATA</span><b>ACTUAL / 2023</b></div>
+        <div className="data-primary"><span>CURRENT LAP</span><strong>{currentLap ? lapTimeLabel(currentLap.duration) : '—'}</strong><p>Lap {currentLap?.lap_number ?? '—'} / Δ {deltaLabel} vs reference</p></div>
+        <div className="engineer-data-grid">
+          <article><span>STRATEGY</span><b>{strategyStatus}</b><small>{stoppedEarly ? 'Manual review opened' : 'Human approval required'}</small></article>
+          <article><span>TYRE STATUS</span><b>{tyreStatus}</b><small>AI radio assessment</small></article>
+          <article><span>TRACK TEMP</span><b>{Number.isFinite(weather?.track_temperature) ? `${weather.track_temperature.toFixed(1)}°C` : '—'}</b><small>Historic session weather</small></article>
+          <article><span>AIR TEMP</span><b>{Number.isFinite(weather?.air_temperature) ? `${weather.air_temperature.toFixed(1)}°C` : '—'}</b><small>Humidity {weather?.humidity ?? '—'}%</small></article>
+          <article><span>EVENT SPEED</span><b>{Number.isFinite(telemetry?.speed) ? `${telemetry.speed} KM/H` : '—'}</b><small>Throttle {telemetry?.throttle ?? '—'}%</small></article>
+          <article><span>BRAKE / GEAR</span><b>{telemetry?.brake ? 'BRAKING' : 'OFF BRAKE'}</b><small>Gear {telemetry?.gear ?? '—'}</small></article>
+        </div>
+        <section className="engineer-action-card"><span>COPILOT ACTION</span><b>{autoEngineerResponse?.display || 'AWAIT ENGINEER'}</b><p>{autoEngineerResponse?.reply || 'No automated response is attached yet. Use the driver radio to create one.'}</p></section>
+      </aside>
     </div>
-    <div className="engineer-conclusion"><span>ENGINEER EXPLANATION</span><p>{currentLap && referenceLap ? `This is the real ${replayData.session.country_name} 2023 race circuit map and lap comparison for ${replayData.selected_driver.full_name}. Lap ${currentLap.lap_number} was ${Math.abs(delta).toFixed(3)}s ${delta > 0 ? 'slower' : 'faster'} than Lap ${referenceLap.lap_number}. ${driverTranscript ? `The live demo radio report was: “${report}”.` : 'Record a driver message during the lap to add your radio finding to this evidence.'}` : 'Real circuit data is loading. Record a driver message during the lap to attach an explainable radio note.'}</p></div>
     <EmotionLens currentLap={currentLap} referenceLap={referenceLap} radioEvents={radioEvents} />
   </section>
 }
@@ -664,6 +704,7 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
   const [lapState, setLapState] = useState('idle')
   const [lapProgress, setLapProgress] = useState(0)
   const [engineerMode, setEngineerMode] = useState(false)
+  const [lapStoppedEarly, setLapStoppedEarly] = useState(false)
   const [replayCircuit, setReplayCircuit] = useState('bahrain')
   const [replayData, setReplayData] = useState(null)
   const [replayLoading, setReplayLoading] = useState(true)
@@ -751,7 +792,15 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
     setEngineerMode(false)
     setLapProgress(0)
     setRadioEvents([])
+    setLapStoppedEarly(false)
     setLapState('running')
+  }
+
+  const stopLap = () => {
+    if (lapState !== 'running') return
+    setLapStoppedEarly(true)
+    setLapState('finished')
+    setEngineerMode(true)
   }
 
   // ── Engineer hold-to-speak ──
@@ -975,13 +1024,11 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
           onEngineerUp={handleEngineerUp}
           onDriverDown={handleDriverDown}
           onDriverUp={handleDriverUp}
-          showLapControl
           lapState={lapState}
-          lapProgress={lapProgress}
-          lapDurationSeconds={replayData?.comparison?.current?.duration || 0}
           lapReady={!replayLoading && Boolean(replayData)}
           lapAvailabilityLabel={replayError ? 'DATA UNAVAILABLE' : replayLoading ? 'LOADING REAL DATA' : undefined}
           onStartLap={startLap}
+          onStopLap={stopLap}
         />
       </div>
 
@@ -1024,7 +1071,7 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
       </div>
 
       <div className="scroll-marker" style={{ opacity: introOpacity }}>SCROLL <span>↓</span></div>
-      {engineerMode && <EngineerMode team={team} driverTranscript={driverTranscript} driverIssue={driverIssue} driverMood={driverMood} radioEvents={radioEvents} replayData={replayData} onClose={() => setEngineerMode(false)} />}
+      {engineerMode && <EngineerMode team={team} driverTranscript={driverTranscript} driverIssue={driverIssue} driverMood={driverMood} radioEvents={radioEvents} autoEngineerResponse={autoEngineerResponse} replayData={replayData} stoppedEarly={lapStoppedEarly} stoppedAt={lapProgress * (replayData?.comparison?.current?.duration || 0)} onClose={() => setEngineerMode(false)} />}
     </div>
   </section>
 }
