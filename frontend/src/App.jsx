@@ -628,6 +628,7 @@ function LapRunConsole({ team, lapState, lapProgress, driverTranscript, engineer
 }
 
 function EngineerMode({ team, driverTranscript, driverIssue, driverMood, radioEvents, autoEngineerResponse, replayData, stoppedEarly = false, stoppedAt = 0, onClose }) {
+  const [issueFocused, setIssueFocused] = useState(false)
   const issue = driverIssue || 'AWAITING RADIO REPORT'
   const report = driverTranscript || 'No driver radio has been captured for this run yet.'
   const currentLap = replayData?.comparison?.current
@@ -637,7 +638,10 @@ function EngineerMode({ team, driverTranscript, driverIssue, driverMood, radioEv
   const trackPolyline = track.map((point) => `${point.x},${point.y}`).join(' ')
   const radioEvent = radioEvents?.at(-1)
   const markerProgress = radioEvent?.progress ?? .58
-  const marker = track[Math.min(track.length - 1, Math.max(0, Math.round(markerProgress * Math.max(0, track.length - 1))))]
+  const markerIndex = Math.min(track.length - 1, Math.max(0, Math.round(markerProgress * Math.max(0, track.length - 1))))
+  const marker = track[markerIndex]
+  const issueZone = driverIssue ? track.slice(Math.max(0, markerIndex - 9), Math.min(track.length, markerIndex + 10)) : []
+  const issueZonePoints = issueZone.map((point) => `${point.x},${point.y}`).join(' ')
   const carData = replayData?.car_data || []
   const telemetry = carData[Math.min(carData.length - 1, Math.max(0, Math.round(markerProgress * Math.max(0, carData.length - 1))))]
   const weather = replayData?.weather?.at(-1)
@@ -660,19 +664,23 @@ function EngineerMode({ team, driverTranscript, driverIssue, driverMood, radioEv
           {track.length > 1 ? <>
             <polyline points={trackPolyline} fill="none" stroke="#263a36" strokeWidth="27" strokeLinecap="round" strokeLinejoin="round" />
             <polyline points={trackPolyline} fill="none" stroke="#dcebe6" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="11 14" opacity=".72" />
-            <polyline points={trackPolyline} fill="none" stroke={team.color} strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="168 54 68 500" />
+            <polyline points={trackPolyline} fill="none" stroke={team.color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" opacity=".58" />
+            {issueZone.length > 1 && <polyline points={issueZonePoints} fill="none" stroke="#f21f2d" strokeWidth="11" strokeLinecap="round" strokeLinejoin="round" className="issue-zone-line" />}
             {marker && <>
-              <circle cx={marker.x} cy={marker.y} r="28" fill={team.color} opacity=".15"><animate attributeName="r" values="20;35;20" dur="1.8s" repeatCount="indefinite" /></circle>
-              <circle cx={marker.x} cy={marker.y} r="15" fill={team.color} stroke="#f0fff9" strokeWidth="4" />
-              <path d={`M ${marker.x + 16} ${marker.y - 16} L ${marker.x + 66} ${marker.y - 58}`} fill="none" stroke={team.color} strokeWidth="2" />
-              <rect x={Math.min(marker.x + 66, 650)} y={Math.max(marker.y - 105, 20)} width="178" height="58" rx="5" fill="#08100f" stroke={team.color} strokeWidth="1" />
-              <text x={Math.min(marker.x + 77, 661)} y={Math.max(marker.y - 82, 43)} fill={team.color} fontSize="10" fontFamily="DM Mono, monospace" letterSpacing="1.2">DRIVER REPORT</text>
-              <text x={Math.min(marker.x + 77, 661)} y={Math.max(marker.y - 61, 64)} fill="#effff9" fontSize="15" fontWeight="700" fontFamily="Space Grotesk, sans-serif">{issue}</text>
+              <g className="track-issue-target" role="button" tabIndex="0" aria-label="Focus the reported issue on the track" onClick={() => setIssueFocused((focused) => !focused)} onKeyDown={(event) => (event.key === 'Enter' || event.key === ' ') && setIssueFocused((focused) => !focused)}>
+                <circle cx={marker.x} cy={marker.y} r="30" fill="#f21f2d" opacity=".18"><animate attributeName="r" values="22;39;22" dur="1.8s" repeatCount="indefinite" /></circle>
+                <circle cx={marker.x} cy={marker.y} r="15" fill="#f21f2d" stroke="#f0fff9" strokeWidth="4" />
+                <path d={`M ${marker.x + 16} ${marker.y - 16} L ${marker.x + 66} ${marker.y - 58}`} fill="none" stroke="#f21f2d" strokeWidth="2" />
+                <rect x={Math.min(marker.x + 66, 628)} y={Math.max(marker.y - (issueFocused ? 126 : 105), 20)} width="200" height={issueFocused ? "79" : "58"} rx="5" fill="#08100f" stroke="#f21f2d" strokeWidth="1.3" />
+                <text x={Math.min(marker.x + 77, 639)} y={Math.max(marker.y - (issueFocused ? 103 : 82), 43)} fill="#f21f2d" fontSize="10" fontFamily="DM Mono, monospace" letterSpacing="1.2">{issueFocused ? 'ISSUE FOCUS / CLICK TO CLOSE' : 'DRIVER REPORT / CLICK TO FOCUS'}</text>
+                <text x={Math.min(marker.x + 77, 639)} y={Math.max(marker.y - (issueFocused ? 82 : 61), 64)} fill="#effff9" fontSize="15" fontWeight="700" fontFamily="Space Grotesk, sans-serif">{issue}</text>
+                {issueFocused && <text x={Math.min(marker.x + 77, 639)} y={Math.max(marker.y - 60, 85)} fill="#a9bdb6" fontSize="9" fontFamily="DM Mono, monospace">{driverMood || 'RADIO'} / {lapTimeLabel(radioEvent?.seconds ?? markerProgress * (currentLap?.duration || 0))}</text>}
+              </g>
             </>}
           </> : <text x="430" y="280" fill="#95aaa3" textAnchor="middle" fontSize="15" fontFamily="DM Mono, monospace">TRACK DATA LOADING</text>}
         </svg>
         <div className="map-event-log"><span>RADIO LOG</span><b>{driverName} / {driverMood || 'NO EMOTION SIGNAL'} / {issue}</b><p>“{report}”</p></div>
-        <div className="track-legend"><span><i /> CURRENT LAP</span><span><i /> REFERENCE LAP</span><span><i /> RADIO ISSUE</span></div>
+        <div className="track-legend"><span><i /> CURRENT LAP</span><span><i /> REFERENCE LAP</span><span><i /> ISSUE ZONE</span></div>
       </section>
 
       <aside className="engineer-data-pane">
