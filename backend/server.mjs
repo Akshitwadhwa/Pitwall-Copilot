@@ -8,6 +8,7 @@ import { transcribeAudio } from './src/transcription.mjs'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 const examples = JSON.parse(await readFile(path.join(root, 'data/hf-slice.json'), 'utf8'))
+const nightRaceData = JSON.parse(await readFile(path.join(root, 'data/openf1-2023-night-races.json'), 'utf8'))
 const PORT = Number(process.env.PORT || 8787)
 const HF_MODEL = 'facebook/bart-large-mnli'
 
@@ -51,11 +52,92 @@ function turnFromMessage(message) {
   return match ? `T${match[1]}` : ''
 }
 
-function engineerReplyForMood(mood) {
-  if (mood === 'ANGRY') return 'COPY. STAY WITH ME. REPORT THE CAR ISSUE.'
-  if (mood === 'FRUSTRATED') return 'COPY. WE HEAR YOU. DESCRIBE THE ISSUE.'
-  if (mood === 'URGENT') return 'UNDERSTOOD. RADIO PRIORITY. GO AHEAD.'
-  return 'COPY. GO AHEAD.'
+// The Copilot must never pretend to make a race-strategy decision. It gives the
+// driver a short, explainable acknowledgement / setup prompt and leaves a human
+// engineer free to override it. The issue itself comes from HF retrieval or the
+// zero-shot classifier above; this layer constrains that result to the small
+// driver-display vocabulary used by the F1-style screen.
+function autoEngineerResponse(issue, message, mood) {
+  const turn = turnFromMessage(message)
+  const atTurn = turn ? ` at ${turn}` : ''
+  const displayTurn = turn ? ` ${turn}` : ''
+
+  const responses = {
+    'REAR SLIP': {
+      reply: `Copy. Rear slip${atTurn}. Short-shift and reduce exit throttle.`,
+      display: `SHORT SHIFT${displayTurn}`,
+      action: 'Short-shift; smooth the throttle on exit.',
+    },
+    'FRONT GRIP': {
+      reply: `Copy. Front grip loss${atTurn}. Avoid the kerb and manage the entry.`,
+      display: `MANAGE ENTRY${displayTurn}`,
+      action: 'Avoid the kerb; protect front grip into the corner.',
+    },
+    'TYRE / WHEEL': {
+      reply: `Copy. Tyre or wheel concern${atTurn}. Confirm front or rear, then describe the grip change.`,
+      display: `TYRE CHECK${displayTurn}`,
+      action: 'Confirm whether the issue is at the front or rear before changing setup.',
+    },
+    'CAR BALANCE': {
+      reply: `Copy. Balance issue${atTurn}. Confirm whether it is front or rear limited.`,
+      display: `BALANCE CHECK${displayTurn}`,
+      action: 'Confirm the affected axle and corner before a manual engineer response.',
+    },
+    'BRAKING': {
+      reply: `Copy. Brake issue${atTurn}. Brake earlier and keep the pedal release smooth.`,
+      display: `BRAKE EARLY${displayTurn}`,
+      action: 'Brake earlier and release progressively.',
+    },
+    'RADIO FAILURE': {
+      reply: 'Copy. Radio check. Repeat only the critical car issue.',
+      display: 'RADIO CHECK',
+      action: 'Use short repeat-back messages until signal is clear.',
+    },
+    'RAIN REPORT': {
+      reply: `Copy. Wet-condition report${atTurn}. Keep us updated on grip and standing water.`,
+      display: `REPORT GRIP${displayTurn}`,
+      action: 'Continue reporting grip changes and standing water.',
+    },
+    'RACE CONTROL': {
+      reply: 'Copy. Race-control situation acknowledged. Follow the delta and wait for the next call.',
+      display: 'HOLD DELTA',
+      action: 'Follow the delta; await the next pit-wall instruction.',
+    },
+    'BLUE FLAG': {
+      reply: 'Copy. Blue flag acknowledged. Give the car ahead a clean pass at the next safe point.',
+      display: 'BLUE FLAG',
+      action: 'Yield safely at the next appropriate point.',
+    },
+    'PIT REQUEST': {
+      reply: 'Copy. Pit request received. We are checking the window; stay on the current plan.',
+      display: 'STAY ON PLAN',
+      action: 'Await manual pit-wall confirmation before changing strategy.',
+    },
+  }
+
+  if (responses[issue]) return { ...responses[issue], source: 'issue-aware-auto-response' }
+
+  if (mood === 'ANGRY') return { reply: 'Copy. We hear you. Give us the car issue and corner.', display: 'REPORT ISSUE', action: 'State the issue and the affected corner.', source: 'mood-safe-response' }
+  if (mood === 'FRUSTRATED') return { reply: 'Copy. Keep the message short: issue, corner, then severity.', display: 'ISSUE / CORNER', action: 'Report the issue, corner, and severity.', source: 'mood-safe-response' }
+  if (mood === 'URGENT') return { reply: 'Understood. Priority channel open — state the critical issue now.', display: 'PRIORITY RADIO', action: 'Use the radio for the critical issue only.', source: 'mood-safe-response' }
+  return { reply: 'Copy. State the car issue and the affected corner.', display: 'REPORT ISSUE', action: 'State the issue and affected corner.', source: 'safe-default-response' }
+}
+
+function replayComparison(race) {
+  const current = race.comparison.current
+  const driverLaps = race.laps.filter((lap) => lap.driver_number === race.selected_driver.driver_number
+    && Number.isFinite(lap.duration) && lap.duration > 50 && !lap.pit_out_lap
+    && Number.isFinite(lap.sector_1) && Number.isFinite(lap.sector_2) && Number.isFinite(lap.sector_3))
+  const reference = driverLaps
+    .filter((lap) => lap.lap_number !== current.lap_number)
+    .sort((left, right) => Math.abs(left.duration - current.duration) - Math.abs(right.duration - current.duration)
+      || Math.abs(left.lap_number - current.lap_number) - Math.abs(right.lap_number - current.lap_number))[0]
+  return {
+    current,
+    reference: reference || race.comparison.reference,
+    delta_seconds: Number((current.duration - (reference || race.comparison.reference).duration).toFixed(3)),
+    selection_rule: 'Fastest clean lap compared with the nearest valid lap-time reference.',
+  }
 }
 
 // ─── Deterministic driver analysis ────────────────────────────────────────────
@@ -64,7 +146,9 @@ function deterministicDriverAnalysis(message) {
   const text = message.toLowerCase()
   const turn = turnFromMessage(message)
   if (/rear|slid|throttle|traction/.test(text)) return { issue: 'REAR SLIP', keyword: `REAR SLIP${turn ? ` ${turn}` : ''}`, confidence: 0.92 }
-  if (/front|tyre|tire|understeer/.test(text)) return { issue: 'FRONT GRIP', keyword: `FRONT GRIP${turn ? ` ${turn}` : ''}`, confidence: 0.88 }
+  if (/front|understeer/.test(text)) return { issue: 'FRONT GRIP', keyword: `FRONT GRIP${turn ? ` ${turn}` : ''}`, confidence: 0.88 }
+  if (/wheel|tyre|tire/.test(text)) return { issue: 'TYRE / WHEEL', keyword: `TYRE CHECK${turn ? ` ${turn}` : ''}`, confidence: 0.76 }
+  if (/car|balance|handling|unstable/.test(text)) return { issue: 'CAR BALANCE', keyword: `BALANCE CHECK${turn ? ` ${turn}` : ''}`, confidence: 0.66 }
   if (/hear|radio|mic|microphone/.test(text)) return { issue: 'RADIO FAILURE', keyword: 'RADIO FAIL', confidence: 0.96 }
   if (/safety car/.test(text)) return { issue: 'RACE CONTROL', keyword: 'SAFETY CAR', confidence: 0.97 }
   if (/blue flag/.test(text)) return { issue: 'BLUE FLAG', keyword: 'BLUE FLAG', confidence: 0.97 }
@@ -123,8 +207,6 @@ async function analyseDriver(message, team, audioFeatures) {
       ? 'hub-dataset-retrieval'
       : 'safe-local-fallback',
   }
-  result.engineerReply = engineerReplyForMood(result.mood)
-
   // Override issue/keyword if HF/retrieval gave us a strong label
   if (label && /rear slip/.test(label)) {
     const turn = turnFromMessage(message)
@@ -136,6 +218,13 @@ async function analyseDriver(message, team, audioFeatures) {
     result.issue = 'FRONT GRIP'
     result.keyword = `FRONT GRIP${turn ? ` ${turn}` : ''}`
   }
+
+  const autoResponse = autoEngineerResponse(result.issue, message, result.mood)
+  result.engineerReply = autoResponse.reply
+  result.driverDisplay = autoResponse.display
+  result.recommendedAction = autoResponse.action
+  result.responseMode = 'AUTO COPILOT — HUMAN OVERRIDE AVAILABLE'
+  result.responseSource = autoResponse.source
 
   return result
 }
@@ -193,7 +282,46 @@ export async function handler(request, response) {
       examples: examples.length,
       model: HF_MODEL,
       whisperModel: 'openai/whisper-large-v3',
-      features: ['mood-detection', 'multi-keyword', 'voice-transcription'],
+      features: ['mood-detection', 'multi-keyword', 'voice-transcription', 'auto-engineer-reply'],
+    })
+  }
+
+  // GET /api/replay/circuits — available real historical replay sources.
+  if (request.method === 'GET' && request.url === '/api/replay/circuits') {
+    return json(response, 200, Object.entries(nightRaceData.races).map(([id, race]) => ({
+      id,
+      circuit: race.session.circuit_short_name,
+      country: race.session.country_name,
+      year: race.session.year,
+      selected_driver: race.selected_driver,
+      comparison: replayComparison(race),
+    })))
+  }
+
+  // GET /api/replay?circuit=bahrain
+  // Returns a compact payload for rendering real lap times and the circuit map.
+  if (request.method === 'GET' && request.url?.startsWith('/api/replay')) {
+    const circuit = new URL(request.url, 'http://localhost').searchParams.get('circuit') || 'bahrain'
+    const race = nightRaceData.races[circuit.toLowerCase()]
+    if (!race) return json(response, 404, { error: 'circuit not loaded', available: Object.keys(nightRaceData.races) })
+
+    const trackPosition = Array.isArray(race.track_position)
+      ? race.track_position
+      : race.track_position.current
+    const carData = Array.isArray(race.car_data)
+      ? race.car_data
+      : race.car_data.current
+
+    return json(response, 200, {
+      source: nightRaceData.source,
+      session: race.session,
+      selected_driver: race.selected_driver,
+      comparison: replayComparison(race),
+      track_position: trackPosition,
+      car_data: carData,
+      weather: race.weather,
+      radio_clips: race.radio_clips,
+      laps: race.laps.filter((lap) => lap.driver_number === race.selected_driver.driver_number),
     })
   }
 

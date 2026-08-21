@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "server": "node server.mjs"
+    "server": "node server.mjs",
+    "ingest:turns": "node scripts/ingest-f1-radio-turns.mjs",
+    "fetch:night-races": "node scripts/fetch-openf1-night-races.mjs"
   }
 }

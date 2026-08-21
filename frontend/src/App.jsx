@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ArrowUpRight, ChevronRight, CircleDot, Mic, Radio, Send, Sparkles as SparkleIcon, Square, Volume2 } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, ChevronRight, CircleDot, Mic, Radio, Send, Sparkles as SparkleIcon, Square, Volume2, X } from 'lucide-react'
 import haasCar from './assets/haas-f1.jpeg'
 import audiCar from './assets/audi-f1.jpg'
 import mclarenCar from './assets/mclaren-mcl38.jpg'
@@ -71,8 +71,8 @@ const teams = [
 
 // ─── Mood helpers ──────────────────────────────────────────────────────────────
 
-const MOOD_COLOUR = { ANGRY: '#ff4040', URGENT: '#ff4f5e', FRUSTRATED: '#ff9020', CALM: '#40d490', FOCUSED: '#40d490', REVIEW: '#f0b040' }
-const MOOD_LABEL = { ANGRY: '⚠ ANGRY', URGENT: '‼ URGENT', FRUSTRATED: '! FRUSTRATED', CALM: '✓ CALM', FOCUSED: '✓ FOCUSED', REVIEW: '? UNCERTAIN' }
+const MOOD_COLOUR = { ANGRY: '#ff4040', URGENT: '#ff4f5e', FRUSTRATED: '#ff9020', CALM: '#40d490', FOCUSED: '#40d490', REVIEW: '#f0b040', TIRED: '#8aa9f5' }
+const MOOD_LABEL = { ANGRY: '⚠ ANGRY', URGENT: '‼ URGENT', FRUSTRATED: '! FRUSTRATED', CALM: '✓ CALM', FOCUSED: '✓ FOCUSED', REVIEW: '? UNCERTAIN', TIRED: '💤 TIRED' }
 
 function moodColor(mood) {
   return MOOD_COLOUR[mood] || '#8da19a'
@@ -98,10 +98,12 @@ function useVoiceRecorder() {
   const transcriptRef = useRef('')
   const chunksRef = useRef([])
   const mediaRecorderRef = useRef(null)
+  const startTimeRef = useRef(null)
 
   const start = useCallback(async () => {
     setError(null)
     transcriptRef.current = ''
+    startTimeRef.current = Date.now()
 
     if (!SpeechRecognitionAPI) {
       setError('Speech recognition is not supported in this browser. Please use Chrome or Edge.')
@@ -174,6 +176,7 @@ function useVoiceRecorder() {
       const history = rmsHistoryRef.current
       const avgRms = history.length > 0 ? history.reduce((a, b) => a + b, 0) / history.length : 0
       const audioFeatures = { rms: Number(avgRms.toFixed(4)) }
+      const recordingDurationSec = startTimeRef.current ? (Date.now() - startTimeRef.current) / 1000 : 0
 
       // Wait for both recorders to finalize
       const p1 = new Promise((r) => {
@@ -192,7 +195,7 @@ function useVoiceRecorder() {
 
       Promise.all([p1, p2]).then(([blob, transcript]) => {
         setRecording(false)
-        resolve({ transcript, blob, audioFeatures })
+        resolve({ transcript, blob, audioFeatures, recordingDurationSec })
       })
     })
   }, [])
@@ -260,7 +263,7 @@ function LiveRadioCard({ team, onOpen, signalMessage = '', mood = '', issue = ''
 // ─── F1 Wheel — hold-to-speak buttons ────────────────────────────────────────
 // Left button = ENGINEER RADIO, Right button = DRIVER RADIO (swapped per spec)
 
-function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, engineerRecording, driverRecording, onEngineerDown, onEngineerUp, onDriverDown, onDriverUp }) {
+function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, engineerRecording, driverRecording, onEngineerDown, onEngineerUp, onDriverDown, onDriverUp, lapState = 'idle', lapReady = true, lapAvailabilityLabel = '', onStartLap, onStopLap }) {
   const accent = team.color
   const secondary = team.accent
   const wheelBody = team.wheelBody || '#202c2d'
@@ -284,6 +287,15 @@ function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, enginee
 
   const currentKw = kwVisible && keywords?.[kwIndex] ? keywords[kwIndex] : null
   const mode = engineerRecording ? 'engineer' : driverRecording ? 'driver' : 'idle'
+  const engineerModeReady = controlsEnabled && lapReady && (lapState === 'idle' || lapState === 'running') && !engineerRecording && !driverRecording
+  const engineerModeButtonLabel = lapState === 'running'
+    ? 'STOP LAP'
+    : engineerModeReady
+    ? 'START LAP'
+    : !lapReady ? 'LOAD DATA'
+    : !controlsEnabled ? 'LOCK WHEEL'
+    : lapState === 'running' ? 'LAP ACTIVE'
+    : 'RUN COMPLETE'
 
   // Live F1 telemetry dashboard state declared unconditionally at the top level
   const [telemetry, setTelemetry] = useState({
@@ -479,7 +491,22 @@ function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, enginee
       <circle cx="729" cy="255" r="48" fill="#121d1e" stroke={secondary} strokeWidth="4" /><text x="729" y="261" textAnchor="middle" fill={secondary} fontSize="22" fontFamily="DM Mono">THR</text>
       <circle cx="278" cy="379" r="42" fill="#151f20" stroke="#d85d5a" strokeWidth="5" /><text x="278" y="386" textAnchor="middle" fill="#f4aca0" fontSize="17" fontFamily="DM Mono">DIFF</text>
       <circle cx="722" cy="379" r="42" fill="#151f20" stroke="#5fc6aa" strokeWidth="5" /><text x="722" y="386" textAnchor="middle" fill="#a9f5df" fontSize="17" fontFamily="DM Mono">GRP</text>
-      <circle cx="500" cy="414" r="27" fill="#111b1c" stroke="#83a79b" strokeWidth="3" /><text x="500" y="420" textAnchor="middle" fill="#dcfff4" fontSize="15" fontFamily="DM Mono">N</text>
+      <g
+        className={`wheel-hit ${engineerModeReady ? 'wheel-engineer-mode' : 'is-disabled'}`}
+        role="button"
+        tabIndex={engineerModeReady ? '0' : '-1'}
+        aria-disabled={!engineerModeReady}
+        aria-label={!lapReady ? lapAvailabilityLabel || 'Loading lap data' : lapState === 'running' ? 'Stop lap replay and open Engineer Mode' : lapState === 'finished' ? 'Open Engineer Mode from the completed lap panel' : controlsEnabled ? 'Start lap replay in Engineer Mode' : 'Engineer Mode locked until wheel is engaged'}
+        style={{ cursor: engineerModeReady ? 'pointer' : 'not-allowed' }}
+        onClick={() => engineerModeReady && (lapState === 'running' ? onStopLap?.() : onStartLap?.())}
+        onKeyDown={(event) => engineerModeReady && (event.key === 'Enter' || event.key === ' ') && (lapState === 'running' ? onStopLap?.() : onStartLap?.())}
+      >
+        <circle cx="500" cy="415" r="34" fill={engineerModeReady ? accent : '#111b1c'} stroke={engineerModeReady ? '#f4fff9' : '#83a79b'} strokeWidth={engineerModeReady ? '3.5' : '3'} />
+        {engineerModeReady && <circle cx="500" cy="415" r="40" fill="none" stroke={accent} strokeWidth="2" opacity=".3"><animate attributeName="r" values="34;43;34" dur="1.4s" repeatCount="indefinite" /><animate attributeName="opacity" values=".45;.05;.45" dur="1.4s" repeatCount="indefinite" /></circle>}
+        <text x="500" y="409" textAnchor="middle" fill={engineerModeReady ? '#06100e' : '#dcfff4'} fontSize="10" fontWeight="700" fontFamily="DM Mono">ENG</text>
+        <text x="500" y="425" textAnchor="middle" fill={engineerModeReady ? '#06100e' : '#91aaa1'} fontSize="6.8" fontWeight="700" fontFamily="DM Mono" letterSpacing=".6">{engineerModeButtonLabel}</text>
+      </g>
+      <text x="500" y="462" textAnchor="middle" fill={engineerModeReady ? accent : '#718780'} fontSize="7" fontFamily="DM Mono" letterSpacing="1.3">ENGINEER MODE</text>
 
       {/* LEFT = ENGINEER RADIO, RIGHT = DRIVER RADIO (swapped per spec) */}
       {holdButton(128, 139, 'ENGINEER RADIO', engineerRecording, onEngineerDown, onEngineerUp)}
@@ -491,6 +518,398 @@ function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, enginee
   </svg>
 }
 
+function normaliseTrackPoints(points, width, height, padding = 22) {
+  const valid = (points || []).filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+  if (valid.length < 2) return []
+  const xs = valid.map((point) => point.x)
+  const ys = valid.map((point) => point.y)
+  const minX = Math.min(...xs); const maxX = Math.max(...xs)
+  const minY = Math.min(...ys); const maxY = Math.max(...ys)
+  const scale = Math.min((width - padding * 2) / Math.max(1, maxX - minX), (height - padding * 2) / Math.max(1, maxY - minY))
+  return valid.map((point) => ({
+    x: padding + (point.x - minX) * scale,
+    y: height - padding - (point.y - minY) * scale,
+  }))
+}
+
+function lapTimeLabel(seconds) {
+  if (!Number.isFinite(seconds)) return '—'
+  const minutes = Math.floor(seconds / 60)
+  return `${minutes}:${(seconds - minutes * 60).toFixed(3).padStart(6, '0')}`
+}
+
+function emotionColour(mood) {
+  return MOOD_COLOUR[mood] || '#9db3ab'
+}
+
+// The default layer is intentionally an annotated demo scenario, not a claim
+// about a historic driver's private emotion. Real radio events replace it when
+// the user records a message during the replay.
+function demoEmotionScenario(duration) {
+  return [
+    { progress: .06, mood: 'CALM', label: 'OPENING PHASE', detail: 'Stable opening inputs.', source: 'DEMO ANNOTATION' },
+    { progress: .32, mood: 'FOCUSED', label: 'HIGH-LOAD CURVES', detail: 'High attention through successive corners.', source: 'DEMO ANNOTATION' },
+    { progress: .58, mood: 'FRUSTRATED', label: 'POSITION BATTLE', detail: 'Illustrative grip complaint under pressure.', source: 'DEMO ANNOTATION' },
+    { progress: .84, mood: 'CALM', label: 'RECOVERY PHASE', detail: 'Communication returns to a steady tone.', source: 'DEMO ANNOTATION' },
+  ].map((event) => ({ ...event, seconds: duration * event.progress }))
+}
+
+function EmotionLens({ currentLap, referenceLap, radioEvents = [], conversationLog = [] }) {
+  const duration = currentLap?.duration || 90
+  const usingLiveEvents = radioEvents.length > 0 || conversationLog.length > 0
+  const demoEvents = demoEmotionScenario(duration)
+  const delta = currentLap && referenceLap ? currentLap.duration - referenceLap.duration : null
+
+  // For the dot timeline: use driver-only entries from conversationLog (they have a mood),
+  // falling back to radioEvents, then demo scenario dots.
+  const timelineDots = conversationLog.length > 0
+    ? conversationLog.filter(e => e.role === 'driver').map((e, i) => ({ ...e, progress: 0.1 + (i / Math.max(1, conversationLog.filter(x => x.role === 'driver').length - 1)) * 0.8, seconds: 0 }))
+    : radioEvents.length > 0
+    ? radioEvents
+    : demoEvents
+
+  const highestEvent = [...timelineDots].sort((l, r) => ({ CALM: 0, FOCUSED: 1, REVIEW: 1, FRUSTRATED: 2, URGENT: 3, ANGRY: 4, TIRED: 1 }[r.mood] || 0) - ({ CALM: 0, FOCUSED: 1, REVIEW: 1, FRUSTRATED: 2, URGENT: 3, ANGRY: 4, TIRED: 1 }[l.mood] || 0))[0]
+  const deltaSentence = delta == null ? 'The lap-time comparison is loading.' : `The selected lap was ${Math.abs(delta).toFixed(3)}s ${delta < 0 ? 'faster' : 'slower'} than its real reference lap.`
+
+  // Ref for the scrollable timeline — auto-scroll to right on new entries
+  const timelineRef = useRef(null)
+  useEffect(() => {
+    if (timelineRef.current) timelineRef.current.scrollLeft = timelineRef.current.scrollWidth
+  }, [timelineDots.length])
+
+  // Ref for conversation — auto-scroll to bottom on new message
+  const logRef = useRef(null)
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
+  }, [conversationLog.length])
+
+  return <section className="emotion-lens" aria-label="Emotion lens">
+    <div className="emotion-lens-head">
+      <div><span>EMOTION LENS / RADIO CONTEXT</span><h3>Driver state across the lap</h3></div>
+      <b className={usingLiveEvents ? 'is-live' : ''}>{usingLiveEvents ? 'LIVE RADIO OVERLAY' : 'DEMO OVERLAY'}</b>
+    </div>
+
+    {/* ── Scrollable mood dot timeline ── */}
+    <div className="emotion-track-scroll" ref={timelineRef} aria-label="Emotion timeline">
+      <div className="emotion-track-inner">
+        <div className="emotion-track-line" />
+        {timelineDots.map((event, index) => (
+          <div key={`dot-${index}`} className="emotion-event emotion-event-pinned" style={{ '--emotion': emotionColour(event.mood) }}>
+            <i />
+            <strong>{event.mood}</strong>
+            <small>{event.ts || lapTimeLabel(event.seconds)}</small>
+          </div>
+        ))}
+      </div>
+    </div>
+
+    {/* ── Conversation log OR demo cards ── */}
+    {conversationLog.length > 0 ? (
+      <div className="conv-log" ref={logRef}>
+        {conversationLog.map((entry) => {
+          const isDriver = entry.role === 'driver'
+          const isEngineer = entry.role === 'engineer'
+          const isAI = entry.role === 'ai'
+          return (
+            <article
+              key={entry.id}
+              className={`conv-entry conv-${entry.role}`}
+              style={{
+                '--conv-color': isDriver ? emotionColour(entry.mood) : '#8b5cf6',
+              }}
+            >
+              <div className="conv-meta">
+                <span className="conv-role">
+                  {isDriver ? `DRIVER · ${entry.mood}` : isEngineer ? 'ENGINEER RADIO' : `PITWALL AI · ${entry.issue}`}
+                </span>
+                <span className="conv-ts">{entry.ts}</span>
+              </div>
+              {entry.issue && isDriver && <b className="conv-issue">{entry.issue}</b>}
+              <p className="conv-text">"{entry.text}"</p>
+            </article>
+          )
+        })}
+      </div>
+    ) : (
+      <div className="emotion-events">
+        {demoEvents.map((event, index) => <article key={`${event.label}-${index}`} style={{ '--emotion': emotionColour(event.mood) }}>
+          <span>{event.mood} / {lapTimeLabel(event.seconds)}</span>
+          <b>{event.label || event.issue || 'RADIO EVENT'}</b>
+          <p>{event.detail || event.transcript || 'Driver radio emotion detected during the replay.'}</p>
+        </article>)}
+      </div>
+    )}
+
+    <div className="emotion-insight">
+      <span>EXPLAINABLE OBSERVATION</span>
+      <p>{highestEvent ? `${highestEvent.mood} signal ${usingLiveEvents ? `recorded at ${highestEvent.ts || lapTimeLabel(highestEvent.seconds)}` : 'shown in the demo scenario'}. ` : ''}{deltaSentence} Emotion is contextual evidence, not proof that it caused the lap-time change.</p>
+    </div>
+  </section>
+}
+
+function LapRunConsole({ team, lapState, lapProgress, driverTranscript, engineerTranscript, autoEngineerReply, driverMood, driverIssue, replayData, onEngineerMode }) {
+  const actualLap = replayData?.comparison?.current
+  const track = normaliseTrackPoints(replayData?.track_position, 420, 220, 30)
+  const car = track[Math.min(track.length - 1, Math.round(lapProgress * Math.max(0, track.length - 1)))]
+  const activeEvent = lapProgress < .22 ? 'GRID EXIT' : lapProgress < .48 ? 'SECTOR 1' : lapProgress < .76 ? 'RADIO WINDOW' : lapProgress < 1 ? 'SECTOR 3' : 'FINISH'
+  const angle = lapProgress * Math.PI * 2 - Math.PI / 2
+  const carX = 50 + Math.cos(angle) * 34 + Math.sin(angle * 3) * 5
+  const carY = 50 + Math.sin(angle) * 27 + Math.cos(angle * 2) * 4
+  const timeline = [
+    ['GRID EXIT', 0, '00:00'], ['S1', .24, actualLap ? `${actualLap.sector_1.toFixed(3)}s` : '—'], ['RADIO', .52, 'LIVE'], ['S3', .78, actualLap ? `${actualLap.sector_3.toFixed(3)}s` : '—'], ['FINISH', 1, actualLap ? lapTimeLabel(actualLap.duration) : '—'],
+  ]
+
+  return <section className={`lap-run-console lap-${lapState}`} aria-label="Lap simulation">
+    <article className="lap-radio-feed">
+      <div className="lap-panel-label"><i /> LIVE RADIO</div>
+      <div><span>DRIVER</span><b>{driverTranscript || 'CHANNEL ARMED — HOLD DRIVER RADIO TO SPEAK'}</b></div>
+      <div><span>{autoEngineerReply ? 'PITWALL AI' : 'ENGINEER'}</span><b>{autoEngineerReply || engineerTranscript || 'CHANNEL ARMED — HOLD ENGINEER RADIO TO SPEAK'}</b></div>
+      <small>{driverMood ? `${driverMood} / ${driverIssue || 'ISSUE PENDING'}` : 'WAITING FOR FIRST MESSAGE'}</small>
+    </article>
+
+    <article className="lap-track-card">
+      <div className="lap-panel-label"><i /> {lapState === 'finished' ? 'RUN COMPLETE' : `${replayData?.session?.circuit_short_name || 'CIRCUIT'} / LIVE RUN`}</div>
+      <svg viewBox="0 0 420 220" role="img" aria-label="Simplified circuit with animated car">
+        {track.length > 1 ? <>
+          <polyline points={track.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke="#344b46" strokeWidth="13" strokeLinecap="round" strokeLinejoin="round" />
+          <polyline points={track.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke={team.color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="6 9" opacity=".85" />
+          {car && <><circle cx={car.x} cy={car.y} r="10" fill={team.color} stroke="#effff9" strokeWidth="3" /><path d={`M ${car.x - 4} ${car.y + 5} L ${car.x + 8} ${car.y} L ${car.x - 4} ${car.y - 5} Z`} fill="#07100e" /></>}
+        </> : <><path d="M69 111 C69 57 127 35 178 56 C223 20 317 38 341 82 C374 139 320 185 257 167 C215 203 121 190 84 151 C69 136 65 124 69 111Z" fill="none" stroke="#344b46" strokeWidth="13" strokeLinecap="round" /><path d="M69 111 C69 57 127 35 178 56 C223 20 317 38 341 82 C374 139 320 185 257 167 C215 203 121 190 84 151 C69 136 65 124 69 111Z" fill="none" stroke={team.color} strokeWidth="3" strokeLinecap="round" strokeDasharray="6 9" opacity=".8" /><circle cx={carX * 4.2} cy={carY * 2.2} r="10" fill={team.color} stroke="#effff9" strokeWidth="3" /></>}
+      </svg>
+      <div className="lap-track-readout"><b>{actualLap ? lapTimeLabel(lapProgress * actualLap.duration) : `${String(Math.round(lapProgress * 100)).padStart(2, '0')}%`}</b><span>{actualLap ? `ACTUAL LAP ${actualLap.lap_number}` : activeEvent}</span></div>
+    </article>
+
+    <article className="lap-timeline-panel">
+      <div className="lap-panel-label"><i /> LAP TIMELINE</div>
+      <div className="lap-timeline-line"><i style={{ height: `${lapProgress * 100}%` }} /></div>
+      <ol>{timeline.map(([label, at, value]) => <li key={label} className={lapProgress >= at ? 'is-passed' : ''}><span>{label}</span><b>{value}</b></li>)}</ol>
+      <button type="button" onClick={onEngineerMode} disabled={lapState !== 'finished'}>ENGINEER MODE <ArrowUpRight size={13} /></button>
+    </article>
+  </section>
+}
+
+function EngineerMode({ team, driverTranscript, driverIssue, driverMood, radioEvents, autoEngineerResponse, replayData, stoppedEarly = false, stoppedAt = 0, onClose, stressMetrics, setStressTemp, setStressTrackTemp, setStressGForce, setStressLap, conversationLog = [] }) {
+  const [issueFocused, setIssueFocused] = useState(false)
+  const issue = driverIssue || 'AWAITING RADIO REPORT'
+  const report = driverTranscript || 'No driver radio has been captured for this run yet.'
+  const currentLap = replayData?.comparison?.current
+  const referenceLap = replayData?.comparison?.reference
+  const delta = replayData?.comparison?.delta_seconds
+  const track = normaliseTrackPoints(replayData?.track_position, 860, 560, 64)
+  const trackPolyline = track.map((point) => `${point.x},${point.y}`).join(' ')
+  const radioEvent = radioEvents?.at(-1)
+  const markerProgress = radioEvent?.progress ?? .58
+  const markerIndex = Math.min(track.length - 1, Math.max(0, Math.round(markerProgress * Math.max(0, track.length - 1))))
+  const marker = track[markerIndex]
+  const issueZone = driverIssue ? track.slice(Math.max(0, markerIndex - 9), Math.min(track.length, markerIndex + 10)) : []
+  const issueZonePoints = issueZone.map((point) => `${point.x},${point.y}`).join(' ')
+  const carData = replayData?.car_data || []
+  const telemetry = carData[Math.min(carData.length - 1, Math.max(0, Math.round(markerProgress * Math.max(0, carData.length - 1))))]
+  const weather = replayData?.weather?.at(-1)
+  const tyreStatus = /TYRE|WHEEL|FRONT|REAR|GRIP/.test(issue) ? `${issue} / REVIEW` : 'NO TYRE FLAG'
+  const strategyStatus = stoppedEarly ? 'EARLY REVIEW' : radioEvent ? 'RADIO REVIEW' : 'BASELINE PLAN'
+  const driverName = replayData?.selected_driver?.full_name || team.drivers?.[0]?.name || 'DRIVER'
+  const deltaLabel = Number.isFinite(delta) ? `${delta >= 0 ? '+' : ''}${delta.toFixed(3)}s` : '—'
+
+  const [wave, setWave] = useState(Array.from({ length: 30 }, () => 50))
+  useEffect(() => {
+    const waveInterval = setInterval(() => {
+      setWave(prev => {
+        const nextWave = [...prev.slice(1)]
+        const lastVal = prev[prev.length - 1]
+        let nextVal = lastVal + (Math.random() * 16 - 8)
+        if (nextVal > 90) nextVal = 75
+        if (nextVal < 10) nextVal = 25
+        nextWave.push(nextVal)
+        return nextWave
+      })
+    }, 90)
+    return () => clearInterval(waveInterval)
+  }, [])
+
+  const wavePath = wave.map((val, i) => {
+    const wx = 389 + i * (222 / (wave.length - 1))
+    const wy = 352 + (val - 50) * 0.16
+    return `${i === 0 ? 'M' : 'L'} ${wx} ${wy}`
+  }).join(' ')
+
+  return <section className="engineer-mode engineer-console" role="dialog" aria-modal="true" aria-label="Engineer Mode track comparison">
+    <header className="engineer-mode-top">
+      <div><span>ENGINEER MODE / LIVE REVIEW</span><h2>PIT WALL</h2></div>
+      <div className="engineer-session-meta"><span>{replayData?.session?.circuit_short_name || 'CIRCUIT'} / 2023 RACE</span><b>{driverName.toUpperCase()}</b></div>
+      <button type="button" onClick={onClose}><X size={16} /> CLOSE</button>
+    </header>
+
+    <div className="engineer-console-grid">
+      <section className="engineer-map-pane">
+        <div className="map-pane-head"><span><i /> TRACK MAP / RADIO POSITION</span><b>{stoppedEarly ? `STOPPED ${lapTimeLabel(stoppedAt)}` : 'RUN REVIEW'}</b></div>
+        <svg viewBox="0 0 860 560" role="img" aria-label="Circuit map with the driver radio issue highlighted">
+          {track.length > 1 ? <>
+            <polyline points={trackPolyline} fill="none" stroke="#263a36" strokeWidth="27" strokeLinecap="round" strokeLinejoin="round" />
+            <polyline points={trackPolyline} fill="none" stroke="#dcebe6" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="11 14" opacity=".72" />
+            <polyline points={trackPolyline} fill="none" stroke={team.color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" opacity=".58" />
+            {issueZone.length > 1 && <polyline points={issueZonePoints} fill="none" stroke="#f21f2d" strokeWidth="11" strokeLinecap="round" strokeLinejoin="round" className="issue-zone-line" />}
+            {marker && <>
+              <g className="track-issue-target" role="button" tabIndex="0" aria-label="Focus the reported issue on the track" onClick={() => setIssueFocused((focused) => !focused)} onKeyDown={(event) => (event.key === 'Enter' || event.key === ' ') && setIssueFocused((focused) => !focused)}>
+                <circle cx={marker.x} cy={marker.y} r="30" fill="#f21f2d" opacity=".18"><animate attributeName="r" values="22;39;22" dur="1.8s" repeatCount="indefinite" /></circle>
+                <circle cx={marker.x} cy={marker.y} r="15" fill="#f21f2d" stroke="#f0fff9" strokeWidth="4" />
+                <path d={`M ${marker.x + 16} ${marker.y - 16} L ${marker.x + 66} ${marker.y - 58}`} fill="none" stroke="#f21f2d" strokeWidth="2" />
+                <rect x={Math.min(marker.x + 66, 628)} y={Math.max(marker.y - (issueFocused ? 126 : 105), 20)} width="200" height={issueFocused ? "79" : "58"} rx="5" fill="#08100f" stroke="#f21f2d" strokeWidth="1.3" />
+                <text x={Math.min(marker.x + 77, 639)} y={Math.max(marker.y - (issueFocused ? 103 : 82), 43)} fill="#f21f2d" fontSize="10" fontFamily="DM Mono, monospace" letterSpacing="1.2">{issueFocused ? 'ISSUE FOCUS / CLICK TO CLOSE' : 'DRIVER REPORT / CLICK TO FOCUS'}</text>
+                <text x={Math.min(marker.x + 77, 639)} y={Math.max(marker.y - (issueFocused ? 82 : 61), 64)} fill="#effff9" fontSize="15" fontWeight="700" fontFamily="Space Grotesk, sans-serif">{issue}</text>
+                {issueFocused && <text x={Math.min(marker.x + 77, 639)} y={Math.max(marker.y - 60, 85)} fill="#a9bdb6" fontSize="9" fontFamily="DM Mono, monospace">{driverMood || 'RADIO'} / {lapTimeLabel(radioEvent?.seconds ?? markerProgress * (currentLap?.duration || 0))}</text>}
+              </g>
+            </>}
+          </> : <text x="430" y="280" fill="#95aaa3" textAnchor="middle" fontSize="15" fontFamily="DM Mono, monospace">TRACK DATA LOADING</text>}
+        </svg>
+        <div className="map-event-log"><span>RADIO LOG</span><b>{driverName} / {driverMood || 'NO EMOTION SIGNAL'} / {issue}</b><p>“{report}”</p></div>
+        <div className="track-legend"><span><i /> CURRENT LAP</span><span><i /> REFERENCE LAP</span><span><i /> ISSUE ZONE</span></div>
+      </section>
+
+      <aside className="engineer-data-pane">
+        <div className="data-pane-head"><span><i /> PIT WALL DATA</span><b>ACTUAL / 2023</b></div>
+        <div className="data-primary"><span>CURRENT LAP</span><strong>{currentLap ? lapTimeLabel(currentLap.duration) : '—'}</strong><p>Lap {currentLap?.lap_number ?? '—'} / Δ {deltaLabel} vs reference</p></div>
+        <div className="engineer-data-grid">
+          <article><span>STRATEGY</span><b>{strategyStatus}</b><small>{stoppedEarly ? 'Manual review opened' : 'Human approval required'}</small></article>
+          <article><span>TYRE STATUS</span><b>{tyreStatus}</b><small>AI radio assessment</small></article>
+          <article><span>TRACK TEMP</span><b>{Number.isFinite(weather?.track_temperature) ? `${weather.track_temperature.toFixed(1)}°C` : '—'}</b><small>Historic session weather</small></article>
+          <article><span>AIR TEMP</span><b>{Number.isFinite(weather?.air_temperature) ? `${weather.air_temperature.toFixed(1)}°C` : '—'}</b><small>Humidity {weather?.humidity ?? '—'}%</small></article>
+          <article><span>EVENT SPEED</span><b>{Number.isFinite(telemetry?.speed) ? `${telemetry.speed} KM/H` : '—'}</b><small>Throttle {telemetry?.throttle ?? '—'}%</small></article>
+          <article><span>BRAKE / GEAR</span><b>{telemetry?.brake ? 'BRAKING' : 'OFF BRAKE'}</b><small>Gear {telemetry?.gear ?? '—'}</small></article>
+        </div>
+        <section className="engineer-action-card"><span>COPILOT ACTION</span><b>{autoEngineerResponse?.display || 'AWAIT ENGINEER'}</b><p>{autoEngineerResponse?.reply || 'No automated response is attached yet. Use the driver radio to create one.'}</p></section>
+      </aside>
+    </div>
+
+    {stressMetrics && (
+      <div className="stress-card">
+        <div className="stress-card-head">
+          <span>DRIVER PHYSICAL STRESS MONITOR</span>
+          <h3>Cockpit Environment & Biometrics</h3>
+        </div>
+        
+        <div className="stress-card-grid">
+          <div className="stress-card-top-row">
+            <div className="stress-card-top-left">
+              <span className="stress-sub-label">CURRENT PHYSICAL STRESS LEVEL</span>
+              <div className={`stress-status-display stress-level-${stressMetrics.psi >= 70 ? (stressMetrics.hydration < 15 ? 'critical' : 'tired') : (stressMetrics.psi >= 45 ? 'elevated' : 'calm')}`}>
+                <div className="stress-status-text">
+                  <strong>{stressMetrics.level}</strong>
+                  <small>PSI Score: {stressMetrics.psi} / 100</small>
+                </div>
+              </div>
+            </div>
+            
+            <div className="stress-card-top-right">
+              <span className="stress-sub-label">DRIVER BIOMETRIC READOUT</span>
+              <div className="biometric-readout-grid">
+                <div className="biometric-item">
+                  <div className="biometric-values">
+                    <label>EST. HEART RATE</label>
+                    <strong>{stressMetrics.hr} <small>bpm</small></strong>
+                  </div>
+                </div>
+                <div className="biometric-item">
+                  <div className="biometric-values">
+                    <label>EST. BREATHING RATE</label>
+                    <strong>{stressMetrics.br} <small>bpm</small></strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div className="stress-card-bottom-row">
+            <span className="stress-sub-label">LIVE TELEMETRY CONFIGURATOR</span>
+            <div className="engineer-data-grid stress-stats-grid">
+              <article className="stress-stat-editable">
+                <span>COCKPIT TEMP</span>
+                <b>
+                  <input 
+                    type="number" 
+                    value={stressMetrics.temp} 
+                    onChange={(e) => setStressTemp(parseFloat(e.target.value) || 0)} 
+                    step="0.1" 
+                  />
+                  <small className="unit">°C</small>
+                </b>
+                <small>Simulation cockpit heat</small>
+              </article>
+              
+              <article className="stress-stat-editable">
+                <span>TRACK TEMP</span>
+                <b>
+                  <input 
+                    type="number" 
+                    value={stressMetrics.trackTemp} 
+                    onChange={(e) => setStressTrackTemp(parseFloat(e.target.value) || 0)} 
+                    step="0.1" 
+                  />
+                  <small className="unit">°C</small>
+                </b>
+                <small>Track surface temperature</small>
+              </article>
+
+              <article className="stress-stat-editable">
+                <span>CURRENT LAP</span>
+                <b>
+                  <input 
+                    type="number" 
+                    value={stressMetrics.lap} 
+                    onChange={(e) => setStressLap(parseInt(e.target.value) || 1)} 
+                    step="1" 
+                  />
+                  <small className="unit">/ 78</small>
+                </b>
+                <small>Current lap number</small>
+              </article>
+
+              <article className="stress-stat-editable">
+                <span>AVG G-FORCE</span>
+                <b>
+                  <input 
+                    type="number" 
+                    value={stressMetrics.gforce} 
+                    onChange={(e) => setStressGForce(parseFloat(e.target.value) || 0)} 
+                    step="0.1" 
+                  />
+                  <small className="unit">G</small>
+                </b>
+                <small>Average lateral Gs</small>
+              </article>
+
+              <article className="readonly">
+                <span>REMAINING HYDRATION</span>
+                <b className={stressMetrics.hydration < 15 ? 'critical-text' : ''}>
+                  {stressMetrics.hydration}
+                  <small className="unit">%</small>
+                </b>
+                <small className={stressMetrics.hydration < 15 ? 'critical-text' : ''}>Driver hydration level</small>
+              </article>
+
+              <article className="readonly">
+                <span>PHYSICAL STRESS INDEX</span>
+                <b className={stressMetrics.psi >= 70 ? 'critical-text' : ''}>
+                  {stressMetrics.psi}
+                  <small className="unit">/ 100</small>
+                </b>
+                <small className={stressMetrics.psi >= 70 ? 'critical-text' : ''}>Composite stress level</small>
+              </article>
+            </div>
+            
+            {/* Real-time telemetry ECG wave drawing at the bottom */}
+            <svg viewBox="371 340 258 20" style={{ height: '20px', width: '100%', marginTop: '15px' }}>
+              <path d={wavePath} fill="none" stroke="#5d746f" strokeWidth="1.5" opacity="0.6" />
+            </svg>
+          </div>
+        </div>
+      </div>
+    )}
+
+    <EmotionLens currentLap={currentLap} referenceLap={referenceLap} radioEvents={radioEvents} conversationLog={conversationLog} />
+  </section>
+}
+
 // ─── Cockpit Link — main interactive page ────────────────────────────────────
 // Engineer button (left) and Driver button (right) are hold-to-speak mics.
 // Left panel shows engineer transcript, right shows driver transcript + mood.
@@ -499,6 +918,14 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
   const sequenceRef = useRef()
   const [progress, setProgress] = useState(0)
   const [pointer, setPointer] = useState({ x: 0, y: 0 })
+  const [lapState, setLapState] = useState('idle')
+  const [lapProgress, setLapProgress] = useState(0)
+  const [engineerMode, setEngineerMode] = useState(false)
+  const [lapStoppedEarly, setLapStoppedEarly] = useState(false)
+  const [replayCircuit, setReplayCircuit] = useState('bahrain')
+  const [replayData, setReplayData] = useState(null)
+  const [replayLoading, setReplayLoading] = useState(true)
+  const [replayError, setReplayError] = useState('')
 
   // Voice recorder instances
   const engineerRecorder = useVoiceRecorder()
@@ -511,13 +938,89 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
   const [driverMood, setDriverMood] = useState(null)
   const [driverIssue, setDriverIssue] = useState('')
   const [driverReply, setDriverReply] = useState('')
+  const [autoEngineerResponse, setAutoEngineerResponse] = useState(null)
   const [driverConfidence, setDriverConfidence] = useState(null)
   const [driverTimestamp, setDriverTimestamp] = useState('')
   const [driverProcessing, setDriverProcessing] = useState(false)
+  const [radioEvents, setRadioEvents] = useState([])
+  // Full conversation history: [{id, role:'driver'|'engineer'|'ai', text, mood, issue, ts}]
+  const [conversationLog, setConversationLog] = useState([])
 
   // Wheel keyword display
   const [wheelKeywords, setWheelKeywords] = useState([])
   const [showWheelKeywords, setShowWheelKeywords] = useState(false)
+
+  // Telemetry dropdown state for Physical Stress Index (PSI) modeling
+  const [stressTemp, setStressTemp] = useState(26.2)
+  const [stressTrackTemp, setStressTrackTemp] = useState(28.7)
+  const [stressGForce, setStressGForce] = useState(1.9)
+  const [stressLap, setStressLap] = useState(50)
+  // null = calculated from formula; number = user-pinned value via dropdown
+  const [stressHydrationOverride, setStressHydrationOverride] = useState(null)
+
+  const stressMetrics = useMemo(() => {
+    // Effective Cockpit Temp Index (baseline humidity = 21%)
+    const tIndex = stressTemp + (0.55 * 0.21 * (stressTemp - 14.5))
+    
+    // Dehydration drop per lap (%)
+    const dropPerLap = 0.5 + Math.pow(tIndex / 30, 2) * (1 + 0.1 * stressGForce)
+    const calculatedHydration = Math.max(5, Number((100 - (dropPerLap * stressLap)).toFixed(1)))
+    // If user has locked a hydration value via dropdown, use it directly
+    const hydration = stressHydrationOverride !== null ? stressHydrationOverride : calculatedHydration
+    
+    // Physical Stress Index (PSI, 0-100) - Correlated to specific user guidelines
+    
+    // 1. Cockpit Temp correlation (<=20 = good, >28 = alarming, >34 = dangerous)
+    let tempLoad = 0
+    if (stressTemp > 34) tempLoad = 30 + (stressTemp - 34) * 3
+    else if (stressTemp > 28) tempLoad = 10 + (stressTemp - 28) * 3.33
+    else if (stressTemp > 20) tempLoad = (stressTemp - 20) * 1.25
+
+    // 2. Track Temp correlation (Radiates heat: >45 = dangerous, >35 = alarming)
+    let trackTempLoad = 0
+    if (stressTrackTemp > 45) trackTempLoad = 10 + (stressTrackTemp - 45) * 1.5
+    else if (stressTrackTemp > 35) trackTempLoad = (stressTrackTemp - 35) * 1.0
+
+    // 3. Hydration vs. Laps Remaining correlation
+    const totalLaps = 78
+    const remainingLapsPct = Math.max(0, ((totalLaps - stressLap) / totalLaps) * 100)
+    let hydrationLoad = 0
+    if (remainingLapsPct > 0 && hydration < remainingLapsPct) {
+      // Calculate deficit percentage relative to the remaining laps required
+      const deficitRatio = (remainingLapsPct - hydration) / remainingLapsPct
+      // Scale deficit more aggressively: 50% deficit = ~39 PSI, 80%+ deficit = ~70+ PSI (guaranteed critical)
+      hydrationLoad = Math.pow(deficitRatio, 1.2) * 90
+    }
+
+    // 4. Physical G-Force effort
+    const gForceLoad = stressGForce * 4.5
+
+    const psi = Math.max(0, Math.min(100, Math.round(tempLoad + trackTempLoad + hydrationLoad + gForceLoad)))
+    
+    // Derived biometrics
+    const hr = Math.round(65 + (psi * 1.25))
+    const br = Math.round(12 + (psi * 0.5))
+    
+    // Stress Level category
+    let level = 'CALM'
+    if (psi >= 70) {
+      level = hydration < 15 ? 'CRITICAL HEALTH RISK' : 'PHYSICAL EXHAUSTION'
+    } else if (psi >= 45) {
+      level = 'ELEVATED LOAD'
+    }
+    
+    return {
+      temp: stressTemp,
+      trackTemp: stressTrackTemp,
+      gforce: stressGForce,
+      lap: stressLap,
+      hydration,
+      psi,
+      hr,
+      br,
+      level
+    }
+  }, [stressTemp, stressTrackTemp, stressGForce, stressLap, stressHydrationOverride])
 
   useEffect(() => {
     const updateProgress = () => {
@@ -536,9 +1039,77 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
     }
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+    setReplayLoading(true)
+    setReplayError('')
+    fetch(apiUrl(`/api/replay?circuit=${replayCircuit}`))
+      .then((response) => {
+        if (!response.ok) throw new Error('Selected circuit data is unavailable')
+        return response.json()
+      })
+      .then((payload) => { if (!cancelled) setReplayData(payload) })
+      .catch((error) => { if (!cancelled) { setReplayData(null); setReplayError(error.message) } })
+      .finally(() => { if (!cancelled) setReplayLoading(false) })
+    return () => { cancelled = true }
+  }, [replayCircuit])
+
+  // Replay is deliberately paced to the historical lap duration. A 1:35.257
+  // Bahrain lap therefore takes 95.257 seconds in the interface, rather than
+  // using a shortened demo animation.
+  useEffect(() => {
+    if (lapState !== 'running') return undefined
+    const selectedDuration = replayData?.comparison?.current?.duration
+    const durationMs = Number.isFinite(selectedDuration) && selectedDuration > 0
+      ? selectedDuration * 1000
+      : 90_000
+    const startedAt = window.performance.now()
+    let frame
+    const tick = (now) => {
+      const nextProgress = Math.min(1, (now - startedAt) / durationMs)
+      setLapProgress(nextProgress)
+      if (nextProgress < 1) frame = window.requestAnimationFrame(tick)
+    }
+    frame = window.requestAnimationFrame(tick)
+    return () => window.cancelAnimationFrame(frame)
+  }, [lapState, replayData])
+
+  useEffect(() => {
+    if (lapProgress >= 1) setLapState('finished')
+  }, [lapProgress])
+
+  // Auto-hide the 3 panels after 3 seconds when run completes
+  useEffect(() => {
+    let timeout
+    if (lapState === 'finished') {
+      timeout = setTimeout(() => {
+        setLapState('idle')
+      }, 3000)
+    }
+    return () => clearTimeout(timeout)
+  }, [lapState])
+
+  const startLap = () => {
+    if (lapState === 'running' || !replayData) return
+    setEngineerMode(false)
+    setLapProgress(0)
+    setRadioEvents([])
+    setLapStoppedEarly(false)
+    setLapState('running')
+  }
+
+  const stopLap = () => {
+    if (lapState !== 'running') return
+    setLapStoppedEarly(true)
+    setLapState('finished')
+    setEngineerMode(true)
+  }
+
   // ── Engineer hold-to-speak ──
   const handleEngineerDown = useCallback(async () => {
     if (progress < 0.72 || engineerRecorder.recording || driverRecorder.recording) return
+    // Manual pit-wall radio is deliberately retained as a later-stage override.
+    setAutoEngineerResponse(null)
     await engineerRecorder.start()
   }, [engineerRecorder, driverRecorder, progress])
 
@@ -560,6 +1131,16 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
     } catch {}
 
     if (text) setEngineerTranscript(text)
+
+    // Append to full conversation history
+    setConversationLog(prev => [...prev, {
+      id: `${Date.now()}-engineer`,
+      role: 'engineer',
+      text: text || engineerTranscript || '',
+      mood: 'ENGINEER',
+      issue: 'ENGINEER RADIO',
+      ts: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    }])
 
     try {
       // Send text to backend for keyword extraction
@@ -601,6 +1182,7 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
     setDriverTimestamp(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
     setDriverConfidence(null)
     setDriverReply('')
+    setAutoEngineerResponse(null)
     await driverRecorder.start()
   }, [driverRecorder, engineerRecorder, onDriverSpeak, progress])
 
@@ -610,8 +1192,17 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
     const result = await driverRecorder.stop()
     if (!result) { setDriverProcessing(false); return }
 
-    const { transcript, audioFeatures, blob } = result
+    const { transcript, audioFeatures, blob, recordingDurationSec } = result
     let text = transcript?.trim()
+    
+    // ── Speech cadence analysis ──────────────────────────────────────────────────
+    // WPM < 70 during a 3s+ recording = slow/laboured speech / taking long pauses
+    const wordCount = (text || '').trim().split(/\s+/).filter(Boolean).length
+    const wpm = recordingDurationSec > 1 ? Math.round((wordCount / recordingDurationSec) * 60) : 999
+    const isSlowSpeech = recordingDurationSec >= 3 && wpm < 70
+    const speechCadenceNote = isSlowSpeech
+      ? `Slow speech detected (${wpm} WPM / ${recordingDurationSec.toFixed(1)}s recording — taking long pauses)`
+      : null
     
     // Try to get the high-accuracy transcript from Whisper first
     try {
@@ -646,10 +1237,84 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
       const moodRank = { CALM: 0, FOCUSED: 0, REVIEW: 1, FRUSTRATED: 2, URGENT: 3, ANGRY: 4 }
       const finalMood = (moodRank[rmsBasedMood] || 0) >= (moodRank[textMood] || 0) ? rmsBasedMood : textMood
 
-      setDriverMood(finalMood)
-      setDriverIssue(res.issue || res.keyword || '')
+      // ── Voice + Telemetry + Speech Cadence — fused stress classification ────────
+      // Inputs:
+      //   stressMetrics.psi  — composite physical stress index (0–100)
+      //   stressMetrics.hydration — current hydration %
+      //   isSlowSpeech — true when WPM < 70 across a 3s+ recording
+      //   finalMood — text + RMS derived emotion
+      let fusedMood = finalMood
+      let fusedIssue = res.issue || res.keyword || ''
+
+      const criticalCondition = stressMetrics.psi >= 70 && stressMetrics.hydration < 15
+      const exhaustedCondition = stressMetrics.psi >= 70
+
+      if (criticalCondition || (isSlowSpeech && stressMetrics.hydration < 15)) {
+        // Worst case: critical dehydration + high PSI or slow speech
+        // ONLY update the issue text to flag the health risk. 
+        // Mood remains exactly what the audio/text analysis found (e.g. CALM).
+        fusedIssue = `CRITICAL HEALTH RISK${speechCadenceNote ? ` — ${speechCadenceNote}` : ''}`
+      } else if (exhaustedCondition || isSlowSpeech) {
+        // Physical exhaustion OR slow/laboured speech pattern detected
+        const reasons = [
+          exhaustedCondition && `PSI ${stressMetrics.psi}/100`,
+          stressMetrics.hydration <= 30 && `Hydration ${stressMetrics.hydration}%`,
+          isSlowSpeech && `${wpm} WPM (slow speech)`,
+          stressMetrics.lap > 45 && `Lap ${stressMetrics.lap}/78 (race fatigue)`,
+        ].filter(Boolean).join(' · ')
+        
+        fusedIssue = (finalMood === 'ANGRY' || finalMood === 'FRUSTRATED') 
+          ? `${res.issue || 'DRIVER DISTRESS'} — ${reasons}`
+          : `PHYSICAL EXHAUSTION — ${reasons}`
+      }
+
+      setDriverMood(fusedMood)
+      setDriverIssue(fusedIssue)
       setDriverConfidence(res.moodConfidence ?? res.confidence ?? null)
       setDriverReply(res.engineerReply || '')
+      setAutoEngineerResponse({
+        reply: res.engineerReply || 'Copy. State the car issue and the affected corner.',
+        display: res.driverDisplay || res.keyword || 'REPORT ISSUE',
+        action: res.recommendedAction || 'State the issue and affected corner.',
+      })
+
+      // Append driver + AI thread to conversation log
+      const nowTs = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      setConversationLog(prev => [...prev,
+        {
+          id: `${Date.now()}-driver`,
+          role: 'driver',
+          text: text || driverTranscript || '',
+          mood: fusedMood,
+          issue: fusedIssue,
+          ts: nowTs,
+        },
+        {
+          id: `${Date.now()}-ai`,
+          role: 'ai',
+          text: res.engineerReply || 'Copy. State the car issue and the affected corner.',
+          mood: 'AI',
+          issue: res.driverDisplay || 'PITWALL AI',
+          ts: nowTs,
+        },
+      ])
+
+      if (lapState === 'running') {
+        const duration = replayData?.comparison?.current?.duration || 90
+        const eventProgress = Math.max(0, Math.min(1, lapProgress))
+        setRadioEvents((events) => [...events, {
+          progress: eventProgress,
+          seconds: duration * eventProgress,
+          mood: fusedMood,
+          issue: fusedIssue || 'RADIO EVENT',
+          label: fusedIssue || 'RADIO EVENT',
+          detail: `“${text || driverTranscript || 'Driver radio'}”`,
+          transcript: text || driverTranscript || '',
+          source: 'LIVE RADIO',
+        }].slice(-4))
+      }
+
+      // Driver radio: wheel screen stays silent — only engineer-side messages display on the wheel.
     } catch {
       // Local fallback: combine text analysis + rms
       const local = analyseDriverMessage(text || driverTranscript || '')
@@ -659,11 +1324,33 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
       setDriverMood(finalMood)
       setDriverIssue(local.issue || '')
       setDriverConfidence(local.confidence ?? null)
-      setDriverReply(local.state === 'ANGRY' ? 'COPY. STAY WITH ME. REPORT THE CAR ISSUE.' : local.state === 'URGENT' ? 'UNDERSTOOD. RADIO PRIORITY. GO AHEAD.' : local.state === 'FRUSTRATED' ? 'COPY. WE HEAR YOU. DESCRIBE THE ISSUE.' : 'COPY. GO AHEAD.')
+      const autoResponse = autoEngineerResponseLocal(local.issue, text || driverTranscript || '', finalMood)
+      setDriverReply(autoResponse.reply)
+      setAutoEngineerResponse(autoResponse)
+      if (lapState === 'running') {
+        const duration = replayData?.comparison?.current?.duration || 90
+        const eventProgress = Math.max(0, Math.min(1, lapProgress))
+        setRadioEvents((events) => [...events, {
+          progress: eventProgress,
+          seconds: duration * eventProgress,
+          mood: finalMood,
+          issue: local.issue || 'RADIO EVENT',
+          label: local.issue || 'RADIO EVENT',
+          detail: `“${text || driverTranscript || 'Driver radio'}”`,
+          transcript: text || driverTranscript || '',
+          source: 'LIVE RADIO / LOCAL FALLBACK',
+        }].slice(-4))
+      }
+      // Append fallback driver + AI thread to conversation log
+      const nowTs = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      setConversationLog(prev => [...prev,
+        { id: `${Date.now()}-driver`, role: 'driver', text: text || driverTranscript || '', mood: finalMood, issue: local.issue || '', ts: nowTs },
+        { id: `${Date.now()}-ai`, role: 'ai', text: autoResponse.reply || 'Copy.', mood: 'AI', issue: autoResponse.display || 'PITWALL AI', ts: nowTs },
+      ])
     } finally {
       setDriverProcessing(false)
     }
-  }, [driverRecorder, engineerRecorder, team, driverTranscript])
+  }, [driverRecorder, engineerRecorder, team, driverTranscript, lapState, lapProgress, replayData])
 
   const panelOpacity = Math.max(0, Math.min(1, (progress - .72) * 3.6))
   const controlsEnabled = progress >= 0.72
@@ -685,7 +1372,83 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
         </>
       )}
       <StepHeader step={3} title={`${team.name.toUpperCase()} / COCKPIT LINK`} onBack={onBack} />
-      <div className="cockpit-topline"><span><i /> TEAM PROFILE LOCKED</span><span>SCROLL TO ENGAGE</span></div>
+      <div className="cockpit-topline">
+        <span><i /> TEAM PROFILE LOCKED</span>
+
+        {/* ── Telemetry Condition Selectors ────────────────────────────────── */}
+        {!engineerMode && <div className="telemetry-dropdowns" style={{ opacity: panelOpacity, pointerEvents: panelOpacity > 0.5 ? 'auto' : 'none', transition: 'opacity 0.1s ease-out' }}>
+          {/* 1 — Remaining Hydration */}
+          <label className="telem-picker">
+            <span>HYDRATION</span>
+            <select
+              value={stressHydrationOverride !== null ? stressHydrationOverride : ''}
+              onChange={(e) => {
+                const v = e.target.value
+                setStressHydrationOverride(v === '' ? null : Number(v))
+              }}
+            >
+              <option value="">AUTO</option>
+              <option value="5">5%</option>
+              <option value="10">10%</option>
+              <option value="15">15%</option>
+              <option value="20">20%</option>
+              <option value="25">25%</option>
+              <option value="30">30%</option>
+            </select>
+            <input
+              type="number"
+              min="1" max="100" step="1"
+              placeholder="—%"
+              value={stressHydrationOverride !== null ? stressHydrationOverride : ''}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value)
+                setStressHydrationOverride(isNaN(v) ? null : Math.min(100, Math.max(1, v)))
+              }}
+            />
+          </label>
+
+          {/* 2 — Cockpit Temperature */}
+          <label className="telem-picker">
+            <span>COCKPIT TEMP</span>
+            <select
+              value={stressTemp}
+              onChange={(e) => setStressTemp(Number(e.target.value))}
+            >
+              {[15, 18, 20, 22, 24, 26, 28, 30, 32, 35, 38, 40, 42, 45].map(t => (
+                <option key={t} value={t}>{t}°C</option>
+              ))}
+            </select>
+          </label>
+
+          {/* 3 — Track Temperature */}
+          <label className="telem-picker">
+            <span>TRACK TEMP</span>
+            <select
+              value={stressTrackTemp}
+              onChange={(e) => setStressTrackTemp(Number(e.target.value))}
+            >
+              {[20, 23, 25, 28, 30, 32, 35, 38, 40, 43, 45, 48, 50, 55].map(t => (
+                <option key={t} value={t}>{t}°C</option>
+              ))}
+            </select>
+          </label>
+
+          {/* 4 — Current Lap (second-half focused) */}
+          <label className="telem-picker">
+            <span>CURRENT LAP</span>
+            <select
+              value={stressLap}
+              onChange={(e) => setStressLap(Number(e.target.value))}
+            >
+              {[1,5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,78].map(l => (
+                <option key={l} value={l}>L{l}</option>
+              ))}
+            </select>
+          </label>
+        </div>}
+
+        <label className="replay-circuit-picker">REPLAY CIRCUIT <select value={replayCircuit} onChange={(event) => { setReplayCircuit(event.target.value); setLapState('idle'); setLapProgress(0); setEngineerMode(false) }} disabled={lapState === 'running'}><option value="bahrain">BAHRAIN / 2023</option><option value="qatar">QATAR / 2023</option><option value="singapore">SINGAPORE / 2023</option></select></label>
+      </div>
 
       {/* Intro copy fades out as wheel locks */}
       <div className="sequence-copy" style={{ opacity: introOpacity, transform: `translateY(${-progress * 65}px)` }}>
@@ -707,20 +1470,38 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
           onEngineerUp={handleEngineerUp}
           onDriverDown={handleDriverDown}
           onDriverUp={handleDriverUp}
+          lapState={lapState}
+          lapReady={!replayLoading && Boolean(replayData)}
+          lapAvailabilityLabel={replayError ? 'DATA UNAVAILABLE' : replayLoading ? 'LOADING REAL DATA' : undefined}
+          onStartLap={startLap}
+          onStopLap={stopLap}
         />
       </div>
 
       {/* Hood decoration */}
       <div className="cockpit-hood" style={{ opacity: Math.min(1, progress * 1.7) }}><span className="hood-light hood-left" /><span className="hood-light hood-right" /><b>COCKPIT LINK</b></div>
 
+      {lapState !== 'idle' && !engineerMode && <LapRunConsole
+        team={team}
+        lapState={lapState}
+        lapProgress={lapProgress}
+        driverTranscript={driverTranscript}
+        engineerTranscript={engineerTranscript}
+        driverMood={driverMood}
+        driverIssue={driverIssue}
+        autoEngineerReply={autoEngineerResponse?.reply}
+        replayData={replayData}
+        onEngineerMode={() => setEngineerMode(true)}
+      />}
+
       {/* Persistent blue live-signal panel. It becomes readable once the wheel locks. */}
-      <div className="sequence-radio" style={{ opacity: panelOpacity, pointerEvents: panelOpacity > .5 ? 'auto' : 'none', transform: `translateX(${(1 - panelOpacity) * 36}px)` }}>
+      <div className="sequence-radio" style={{ opacity: lapState === 'idle' ? panelOpacity : 0, pointerEvents: lapState === 'idle' && panelOpacity > .5 ? 'auto' : 'none', transform: `translateX(${(1 - panelOpacity) * 36}px)` }}>
         <LiveRadioCard team={team} onOpen={() => onStart?.()} signalMessage={driverProcessing ? 'TRANSCRIBING / ANALYSING…' : driverTranscript ? `DRIVER: ${driverTranscript}` : ''} mood={driverMood} issue={driverIssue} reply={driverReply} processing={driverProcessing} confidence={driverConfidence} timestamp={driverTimestamp} />
       </div>
 
-      {/* Engineer transcript panel — LEFT side */}
-      <div className="cockpit-transcript cockpit-transcript-left" style={{ opacity: panelOpacity, pointerEvents: panelOpacity > .5 ? 'auto' : 'none', transform: `translateX(${(1 - panelOpacity) * -28}px)` }}>
-        <div className="ct-label"><span className="ct-dot" /> ENGINEER RADIO</div>
+      {/* Driver-focused auto reply. Manual engineer radio remains an override. */}
+      <div className="cockpit-transcript cockpit-transcript-left" style={{ opacity: lapState === 'idle' ? panelOpacity : 0, pointerEvents: lapState === 'idle' && panelOpacity > .5 ? 'auto' : 'none', transform: `translateX(${(1 - panelOpacity) * -28}px)` }}>
+        <div className="ct-label"><span className="ct-dot" /> ENGINEER RADIO / MANUAL OVERRIDE</div>
         {engineerProcessing
           ? <p className="ct-processing">PROCESSING…</p>
           : engineerTranscript
@@ -734,6 +1515,24 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
       </div>
 
       <div className="scroll-marker" style={{ opacity: introOpacity }}>SCROLL <span>↓</span></div>
+      {engineerMode && <EngineerMode 
+        team={team} 
+        driverTranscript={driverTranscript} 
+        driverIssue={driverIssue} 
+        driverMood={driverMood} 
+        radioEvents={radioEvents} 
+        autoEngineerResponse={autoEngineerResponse} 
+        replayData={replayData} 
+        stoppedEarly={lapStoppedEarly} 
+        stoppedAt={lapProgress * (replayData?.comparison?.current?.duration || 0)} 
+        onClose={() => setEngineerMode(false)} 
+        stressMetrics={stressMetrics}
+        setStressTemp={setStressTemp}
+        setStressTrackTemp={setStressTrackTemp}
+        setStressGForce={setStressGForce}
+        setStressLap={setStressLap}
+        conversationLog={conversationLog}
+      />}
     </div>
   </section>
 }
@@ -828,7 +1627,9 @@ function analyseDriverMessage(message) {
   else if (/rear|slid|throttle|traction|snap/.test(text)) state = 'FRUSTRATED'
 
   if (/rear|slid|throttle|traction|snap|oversteer/.test(text)) return { state, issue: 'REAR SLIP', keyword: `REAR SLIP${turn ? ` ${turn}` : ''}`, confidence: '92%' }
-  if (/front|tyre|tire|understeer|grip/.test(text)) return { state, issue: 'FRONT GRIP', keyword: `FRONT GRIP${turn ? ` ${turn}` : ''}`, confidence: '88%' }
+  if (/front|understeer|front grip/.test(text)) return { state, issue: 'FRONT GRIP', keyword: `FRONT GRIP${turn ? ` ${turn}` : ''}`, confidence: '88%' }
+  if (/wheel|tyre|tire/.test(text)) return { state, issue: 'TYRE / WHEEL', keyword: `TYRE CHECK${turn ? ` ${turn}` : ''}`, confidence: '76%' }
+  if (/car|balance|handling|unstable/.test(text)) return { state, issue: 'CAR BALANCE', keyword: `BALANCE CHECK${turn ? ` ${turn}` : ''}`, confidence: '66%' }
   if (/hear|radio|mic|microphone|signal|static/.test(text)) return { state: 'URGENT', issue: 'RADIO FAILURE', keyword: 'RADIO FAIL', confidence: '96%' }
   if (/safety car|vsc|yellow/.test(text)) return { state: 'FOCUSED', issue: 'RACE CONTROL', keyword: 'SAFETY CAR', confidence: '97%' }
   if (/box|pit|stop|come in/.test(text)) return { state: 'FOCUSED', issue: 'PIT REQUEST', keyword: 'BOX', confidence: '94%' }
@@ -837,6 +1638,27 @@ function analyseDriverMessage(message) {
   // If cuss words detected but no specific issue, it's an ANGRY/FRUSTRATED unclassified
   if (cussCount >= 1) return { state, issue: 'GENERAL COMPLAINT', keyword: 'DRIVER UNHAPPY', confidence: '70%' }
   return { state, issue: 'UNCLASSIFIED', keyword: 'REVIEW RADIO', confidence: '54%' }
+}
+
+// Offline/demo fallback for the same constrained driver-display protocol used by
+// the backend. It keeps the interaction usable when the deployed API is asleep.
+function autoEngineerResponseLocal(issue, message, mood) {
+  const turn = message.match(/turn\s*(\d{1,2})/i)?.[1]
+  const atTurn = turn ? ` at T${turn}` : ''
+  const displayTurn = turn ? ` T${turn}` : ''
+  const responses = {
+    'REAR SLIP': { reply: `Copy. Rear slip${atTurn}. Short-shift and reduce exit throttle.`, display: `SHORT SHIFT${displayTurn}`, action: 'Short-shift; smooth the throttle on exit.' },
+    'FRONT GRIP': { reply: `Copy. Front grip loss${atTurn}. Avoid the kerb and manage the entry.`, display: `MANAGE ENTRY${displayTurn}`, action: 'Avoid the kerb; protect front grip into the corner.' },
+    'TYRE / WHEEL': { reply: `Copy. Tyre or wheel concern${atTurn}. Confirm front or rear, then describe the grip change.`, display: `TYRE CHECK${displayTurn}`, action: 'Confirm whether the issue is at the front or rear before changing setup.' },
+    'CAR BALANCE': { reply: `Copy. Balance issue${atTurn}. Confirm whether it is front or rear limited.`, display: `BALANCE CHECK${displayTurn}`, action: 'Confirm the affected axle and corner before a manual engineer response.' },
+    'BRAKING': { reply: `Copy. Brake issue${atTurn}. Brake earlier and keep the release smooth.`, display: `BRAKE EARLY${displayTurn}`, action: 'Brake earlier and release progressively.' },
+    'RADIO FAILURE': { reply: 'Copy. Radio check. Repeat only the critical car issue.', display: 'RADIO CHECK', action: 'Use short repeat-back messages until signal is clear.' },
+    'PIT REQUEST': { reply: 'Copy. Pit request received. We are checking the window; stay on the current plan.', display: 'STAY ON PLAN', action: 'Await manual pit-wall confirmation before changing strategy.' },
+    'RACE CONTROL': { reply: 'Copy. Follow the delta and wait for the next call.', display: 'HOLD DELTA', action: 'Follow the delta; await the next pit-wall instruction.' },
+  }
+  if (responses[issue]) return responses[issue]
+  if (mood === 'ANGRY') return { reply: 'Copy. We hear you. Give us the car issue and corner.', display: 'REPORT ISSUE', action: 'State the issue and the affected corner.' }
+  return { reply: 'Copy. State the car issue and the affected corner.', display: 'REPORT ISSUE', action: 'State the issue and affected corner.' }
 }
 
 function extractEngineerKeywordsLocal(message) {
@@ -1255,7 +2077,7 @@ function App() {
         <article className="briefing-data">
           <p className="briefing-summary">{selected.summary}</p>
           <div className="stat-grid"><div><span>CHAMPIONSHIP</span><AnimatedStat value={selected.position} /></div><div><span>POINTS</span><AnimatedStat value={selected.points} /></div><div><span>GP PODIUMS</span><AnimatedStat value={selected.podiums} /></div><div><span>ROUNDS</span><AnimatedStat value={selected.races} /></div></div>
-          <div className="briefing-actions"><button className="primary-action next-action" onClick={() => goTo('cockpit')}>ENTER COCKPIT LINK <ArrowUpRight size={17} /></button><span><i /> RADIO DESK READY / TEAM CHANNEL LOCKED</span></div>
+          <div className="briefing-actions"><div><button className="primary-action next-action" onClick={() => goTo('cockpit')}>ENTER COCKPIT LINK <ArrowUpRight size={17} /></button></div><span><i /> RADIO DESK READY / TEAM CHANNEL LOCKED</span></div>
           <div className="copilot-note"><SparkleIcon size={17} /><div><span>COPILOT FOCUS</span><p>{selected.signal}</p></div></div>
           {selected.audioIssues?.length > 0 && <section className="audio-issues"><div className="audio-issues-heading"><div><span>RADIO ISSUES / SIGNAL HISTORY</span><small>WHY THIS TEAM CHANNEL NEEDS A COPILOT</small></div><i /></div><p className="audio-issues-intro">A compact season log of communication friction. Each event becomes a priority for the live radio desk.</p><div className="audio-issue-list">{selected.audioIssues.map((item, index) => <div className="audio-issue" key={item.event}><div className="audio-issue-index"><b>0{index + 1}</b><span>{item.event}</span></div><div className="audio-issue-copy"><strong>{item.label}</strong><p>{item.issue}</p></div><span className="issue-wave" aria-hidden="true"><i /><i /><i /><i /><i /></span></div>)}</div></section>}
           <div className="source-line">SEASON SNAPSHOT: FORMULA1.COM RESULTS / CHECKED 10 AUG 2026</div>
