@@ -124,7 +124,7 @@
 .cockpit-transcript {
   position: absolute;
   z-index: 5;
-  top: 28%;
+  top: 34%;
   width: min(230px, 18vw);
   padding: 14px 15px;
   border: 1px solid rgba(168, 255, 231, .28);
@@ -1195,7 +1195,7 @@
 .cockpit-hood b { position: absolute; left: 50%; top: 36%; transform: translateX(-50%); color: #83b7a9; font: 10px 'DM Mono', monospace; letter-spacing: .22em; }
 .hood-light { position: absolute; top: 43%; width: 16%; height: 3px; background: var(--team); box-shadow: 0 0 17px var(--team); }.hood-left { left: 15%; }.hood-right { right: 15%; }
 
-.sequence-radio { position: absolute; z-index: 5; top: 28%; right: max(40px, calc((100vw - 1360px) / 2)); width: 275px; transition: opacity .2s linear, transform .2s linear; }
+.sequence-radio { position: absolute; z-index: 5; top: 34%; right: max(40px, calc((100vw - 1360px) / 2)); width: 275px; transition: opacity .2s linear, transform .2s linear; }
 .sequence-radio .live-radio-card { position: relative; top: auto; left: auto; width: 100%; transform: none; }
 .sequence-radio .live-radio-card[role="button"] { cursor: pointer; transition: border-color .2s, box-shadow .2s, transform .2s; }
 .sequence-radio .live-radio-card[role="button"]:hover { border-color: var(--team); box-shadow: 0 18px 55px rgba(0,0,0,.45), 0 0 24px color-mix(in srgb, var(--team) 22%, transparent); transform: translateY(-3px); }
@@ -1319,6 +1319,10 @@
 
 /* ── Emotion Lens: Conversation Log ── */
 .conv-log { display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow-y: auto; scrollbar-width: thin; margin-top: 6px; padding-right: 6px; }
+.conv-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px; padding: 8px 10px; border: 1px solid rgba(222, 251, 241, .12); background: rgba(222, 251, 241, .025); color: #78928a; font: 7px 'DM Mono', monospace; letter-spacing: .08em; }
+.conv-toolbar > span { margin-right: auto; color: var(--team); }
+.conv-toolbar label { display: inline-flex; align-items: center; gap: 5px; color: #82968f; }
+.conv-toolbar select { height: 24px; padding: 0 5px; border: 1px solid rgba(222, 251, 241, .16); color: #dcebe6; background: #0a1213; outline: none; font: 7px 'DM Mono', monospace; }
 .conv-entry { background: rgba(222, 251, 241, .035); border: 1px solid rgba(222,251,241,.03); border-left: 2px solid var(--conv-color); padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
 .conv-ai { margin-left: 24px; } /* Indent AI thread replies */
 .conv-meta { display: flex; justify-content: space-between; font: 7px 'DM Mono', monospace; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 2px; }

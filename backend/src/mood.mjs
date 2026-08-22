@@ -30,6 +30,10 @@ const FRUSTRATION_PHRASES = [
   /snapping/i,
   /bouncing/i,
   /losing (it|everything)/i,
+  /problem/i,
+  /issue/i,
+  /broken/i,
+  /wrong/i,
 ]
 
 const INTENSITY_PHRASES = [
@@ -48,6 +52,20 @@ const URGENCY_PHRASES = [
   /respond/i,
   /can't hear/i,
   /radio (failure|broken|down)/i,
+]
+
+const ANGER_PHRASES = [
+  /what the/i,
+  /are you (kidding|serious)/i,
+  /this is (awful|terrible|a joke|unacceptable)/i,
+  /come on/i,
+  /for (god|christ|heaven)'?s sake/i,
+  /absolutely (awful|terrible|ridiculous)/i,
+  /ridiculous/i,
+  /unacceptable/i,
+  /useless/i,
+  /idiot/i,
+  /stupid/i,
 ]
 
 /**
@@ -70,6 +88,7 @@ export function detectMoodFromText(text) {
   const cussCount = countCussWords(lower)
   const hasFrustration = FRUSTRATION_PHRASES.some((re) => re.test(lower))
   const hasIntensity = INTENSITY_PHRASES.some((re) => re.test(lower))
+  const hasAnger = cussCount >= 1 || ANGER_PHRASES.some((re) => re.test(lower)) || hasIntensity
   const hasUrgency = URGENCY_PHRASES.some((re) => re.test(lower))
 
   if (hasUrgency) {
@@ -80,15 +99,15 @@ export function detectMoodFromText(text) {
     }
   }
 
-  if (cussCount >= 2 || (cussCount >= 1 && hasIntensity)) {
+  if (hasAnger) {
     return {
       mood: 'ANGRY',
-      moodConfidence: Math.min(0.97, 0.72 + cussCount * 0.08),
-      moodReason: 'strong language + intensity markers',
+      moodConfidence: Math.min(0.97, 0.74 + cussCount * 0.08 + (hasIntensity ? 0.04 : 0)),
+      moodReason: cussCount >= 1 ? 'strong language detected' : 'high-intensity language detected',
     }
   }
 
-  if (cussCount === 1 || hasFrustration) {
+  if (hasFrustration) {
     return {
       mood: 'FRUSTRATED',
       moodConfidence: Math.min(0.9, 0.62 + (cussCount * 0.1) + (hasFrustration ? 0.08 : 0)),
@@ -114,6 +133,7 @@ export function detectMoodFromAudio(text, audioFeatures) {
   const lower = text.toLowerCase()
   const cussCount = countCussWords(lower)
   const hasFrustration = FRUSTRATION_PHRASES.some((re) => re.test(lower))
+  const hasAnger = cussCount >= 1 || ANGER_PHRASES.some((re) => re.test(lower)) || INTENSITY_PHRASES.some((re) => re.test(lower))
   const hasUrgency = URGENCY_PHRASES.some((re) => re.test(lower))
 
   if (hasUrgency && rms > 0.08) {
@@ -124,12 +144,14 @@ export function detectMoodFromAudio(text, audioFeatures) {
     }
   }
 
-  // High energy + cuss words = ANGRY
-  if (rms > 0.18 && (cussCount >= 1 || hasFrustration)) {
+  // Strong language or hostile phrasing stays angry even if the vocal energy is low.
+  if (hasAnger || (rms > 0.18 && hasFrustration)) {
     return {
       mood: 'ANGRY',
-      moodConfidence: Math.min(0.97, 0.78 + rms * 0.6 + cussCount * 0.05),
-      moodReason: `high vocal energy (${(rms * 100).toFixed(0)}%) + strong language`,
+      moodConfidence: Math.min(0.97, 0.78 + rms * 0.5 + cussCount * 0.06),
+      moodReason: hasAnger
+        ? `hostile language detected${rms > 0.08 ? ` with vocal energy (${(rms * 100).toFixed(0)}%)` : ''}`
+        : `high vocal energy (${(rms * 100).toFixed(0)}%) + frustration markers`,
     }
   }
 
@@ -143,7 +165,7 @@ export function detectMoodFromAudio(text, audioFeatures) {
   }
 
   // Moderate energy + text markers
-  if (rms > 0.08 && (cussCount >= 1 || hasFrustration)) {
+  if (rms > 0.08 && hasFrustration) {
     return {
       mood: 'FRUSTRATED',
       moodConfidence: Math.min(0.88, 0.62 + rms + cussCount * 0.06),
@@ -151,8 +173,22 @@ export function detectMoodFromAudio(text, audioFeatures) {
     }
   }
 
-  // Low energy = calm regardless of text
+  // Low energy normally reads calm, but not if the text is clearly hostile.
   if (rms <= 0.08) {
+    if (hasAnger) {
+      return {
+        mood: 'ANGRY',
+        moodConfidence: Math.min(0.9, 0.74 + cussCount * 0.06),
+        moodReason: 'hostile text detected despite low vocal energy',
+      }
+    }
+    if (hasFrustration) {
+      return {
+        mood: 'FRUSTRATED',
+        moodConfidence: Math.min(0.88, 0.64 + cussCount * 0.05),
+        moodReason: 'frustration markers detected despite low vocal energy',
+      }
+    }
     return {
       mood: 'CALM',
       moodConfidence: Math.min(0.92, 0.72 + (0.08 - rms) * 2),

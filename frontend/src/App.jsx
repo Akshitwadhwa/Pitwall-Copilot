@@ -18,6 +18,7 @@ const teams = [
   {
     id: 'haas',
     name: 'Haas', code: 'HAA', color: '#d71920', accent: '#f4f4f4', wheelBody: '#151518', wheelTrim: '#f4f4f4',
+    driverLabel: 'Olli',
     image: haasCar,
     drivers: [
       { name: 'Esteban Ocon', number: '31', image: haasDriverOne, profile: 'PRECISE / FEEDBACK' },
@@ -35,6 +36,7 @@ const teams = [
   {
     id: 'audi',
     name: 'Audi', code: 'AUD', color: '#e30613', accent: '#c9cdd1', wheelBody: '#17191c', wheelTrim: '#e7e7e7',
+    driverLabel: 'Nico',
     image: audiCar,
     drivers: [
       { name: 'Gabriel Bortoleto', number: '5', image: audiDriverOne, profile: 'PRECISION / CONTROL' },
@@ -52,6 +54,7 @@ const teams = [
   {
     id: 'mclaren',
     name: 'McLaren', code: 'MCL', color: '#ff8000', accent: '#8cebdd', wheelBody: '#17191b', wheelTrim: '#8cebdd',
+    driverLabel: 'Lando',
     // Local footage keeps the cockpit background reliable in production.
     controllerVideo: monacoLapRecord,
     image: mclarenCar,
@@ -216,6 +219,7 @@ function StepHeader({ step, onBack, title }) {
 }
 
 function LiveRadioCard({ team, onOpen, signalMessage = '', mood = '', issue = '', reply = '', processing = false, confidence = null, timestamp = '' }) {
+  const driverLabel = team?.driverLabel || team?.code || 'CH --'
   const messages = useMemo(() => [
     team ? `${team.name} radio online. The channel is tuned to this team's terminology.` : 'Select a team to tune the radio channel to its terminology.',
     'Pitwall Copilot listens for signal loss, urgency and missed acknowledgement.',
@@ -249,8 +253,8 @@ function LiveRadioCard({ team, onOpen, signalMessage = '', mood = '', issue = ''
   }
 
   return <aside className="live-radio-card" aria-label="Live team radio example" role={onOpen ? 'button' : undefined} tabIndex={onOpen ? 0 : undefined} onClick={openDesk} onKeyDown={handleKeyDown}>
-    <div className="radio-card-top"><span>LIVE SIGNAL</span><i /><span>{team?.code || 'CH --'}</span></div>
-    <div className="radio-team"><span className="radio-number">{team?.code || '01'}</span><div><strong>{team?.name || 'RADIO'}</strong><b>RADIO</b></div></div>
+    <div className="radio-card-top"><span>LIVE SIGNAL</span><i /><span>{driverLabel}</span></div>
+    <div className="radio-team"><span className="radio-number">{driverLabel}</span><div><strong>{team?.name || 'RADIO'}</strong><b>RADIO</b></div></div>
     <div className="mini-wave" aria-hidden="true">{Array.from({ length: 25 }).map((_, index) => <i key={index} style={{ '--h': `${7 + (index % 6) * 4}px`, '--delay': `${index * -.075}s` }} />)}</div>
     <p>{typedMessage}<span className="typing-cursor">|</span></p>
     <div className={`radio-progress ${processing ? 'is-processing' : ''}`} aria-label={processing ? 'Transcription and analysis in progress' : 'Signal processed'}><i /></div>
@@ -540,6 +544,22 @@ function emotionColour(mood) {
   return MOOD_COLOUR[mood] || '#9db3ab'
 }
 
+const RADIO_LOG_STORAGE_KEY = 'pitwall-copilot:radio-log:v1'
+
+function loadPersistedRadioLog() {
+  if (typeof window === 'undefined') return []
+  try {
+    const value = JSON.parse(window.localStorage.getItem(RADIO_LOG_STORAGE_KEY) || '[]')
+    return Array.isArray(value) ? value.map((entry, index) => ({
+      ...entry,
+      recordNumber: entry.recordNumber || index + 1,
+      lapNumber: entry.lapNumber || null,
+    })) : []
+  } catch {
+    return []
+  }
+}
+
 // The default layer is intentionally an annotated demo scenario, not a claim
 // about a historic driver's private emotion. Real radio events replace it when
 // the user records a message during the replay.
@@ -557,6 +577,22 @@ function EmotionLens({ currentLap, referenceLap, radioEvents = [], conversationL
   const usingLiveEvents = radioEvents.length > 0 || conversationLog.length > 0
   const demoEvents = demoEmotionScenario(duration)
   const delta = currentLap && referenceLap ? currentLap.duration - referenceLap.duration : null
+  const [roleFilter, setRoleFilter] = useState('all')
+  const [moodFilter, setMoodFilter] = useState('all')
+  const [sortMode, setSortMode] = useState('newest')
+
+  const visibleLog = useMemo(() => {
+    const filtered = conversationLog.filter((entry) => {
+      const roleMatches = roleFilter === 'all' || entry.role === roleFilter
+      const moodMatches = moodFilter === 'all' || entry.mood === moodFilter
+      return roleMatches && moodMatches
+    })
+    return [...filtered].sort((left, right) => {
+      const leftTime = Date.parse(left.createdAt || '') || 0
+      const rightTime = Date.parse(right.createdAt || '') || 0
+      return sortMode === 'oldest' ? leftTime - rightTime : rightTime - leftTime
+    })
+  }, [conversationLog, moodFilter, roleFilter, sortMode])
 
   // For the dot timeline: use driver-only entries from conversationLog (they have a mood),
   // falling back to radioEvents, then demo scenario dots.
@@ -579,7 +615,7 @@ function EmotionLens({ currentLap, referenceLap, radioEvents = [], conversationL
   const logRef = useRef(null)
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
-  }, [conversationLog.length])
+  }, [visibleLog.length])
 
   return <section className="emotion-lens" aria-label="Emotion lens">
     <div className="emotion-lens-head">
@@ -603,8 +639,15 @@ function EmotionLens({ currentLap, referenceLap, radioEvents = [], conversationL
 
     {/* ── Conversation log OR demo cards ── */}
     {conversationLog.length > 0 ? (
+      <>
+      <div className="conv-toolbar" aria-label="Radio history filters">
+        <span>{visibleLog.length} RECORD{visibleLog.length === 1 ? '' : 'S'} / {conversationLog.length} TOTAL</span>
+        <label>ROLE <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}><option value="all">ALL</option><option value="driver">DRIVER</option><option value="engineer">ENGINEER</option><option value="ai">PITWALL AI</option></select></label>
+        <label>MOOD <select value={moodFilter} onChange={(event) => setMoodFilter(event.target.value)}><option value="all">ALL</option>{Object.keys(MOOD_COLOUR).map((mood) => <option key={mood} value={mood}>{mood}</option>)}</select></label>
+        <label>SORT <select value={sortMode} onChange={(event) => setSortMode(event.target.value)}><option value="newest">NEWEST FIRST</option><option value="oldest">OLDEST FIRST</option></select></label>
+      </div>
       <div className="conv-log" ref={logRef}>
-        {conversationLog.map((entry) => {
+        {visibleLog.map((entry) => {
           const isDriver = entry.role === 'driver'
           const isEngineer = entry.role === 'engineer'
           const isAI = entry.role === 'ai'
@@ -620,7 +663,7 @@ function EmotionLens({ currentLap, referenceLap, radioEvents = [], conversationL
                 <span className="conv-role">
                   {isDriver ? `DRIVER · ${entry.mood}` : isEngineer ? 'ENGINEER RADIO' : `PITWALL AI · ${entry.issue}`}
                 </span>
-                <span className="conv-ts">{entry.ts}</span>
+                <span className="conv-ts">{entry.ts} · RUN {entry.recordNumber || '—'} · LAP {entry.lapNumber || '—'}</span>
               </div>
               {entry.issue && isDriver && <b className="conv-issue">{entry.issue}</b>}
               <p className="conv-text">"{entry.text}"</p>
@@ -628,6 +671,7 @@ function EmotionLens({ currentLap, referenceLap, radioEvents = [], conversationL
           )
         })}
       </div>
+      </>
     ) : (
       <div className="emotion-events">
         {demoEvents.map((event, index) => <article key={`${event.label}-${index}`} style={{ '--emotion': emotionColour(event.mood) }}>
@@ -972,7 +1016,54 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
   const [driverProcessing, setDriverProcessing] = useState(false)
   const [radioEvents, setRadioEvents] = useState([])
   // Full conversation history: [{id, role:'driver'|'engineer'|'ai', text, mood, issue, ts}]
-  const [conversationLog, setConversationLog] = useState([])
+  const [conversationLog, setConversationLog] = useState(loadPersistedRadioLog)
+
+  // Keep the demo ledger on this localhost origin so a refresh or a Vite
+  // hot-reload does not erase the evidence being shown to mentors.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(RADIO_LOG_STORAGE_KEY, JSON.stringify(conversationLog.slice(-200)))
+    } catch {}
+  }, [conversationLog])
+
+  // If local browser storage was cleared, rehydrate the same ledger from the
+  // Supabase radio history for this anonymous browser session.
+  useEffect(() => {
+    if (!isHistoryConfigured) return undefined
+    let cancelled = false
+    const loadRemoteHistory = async () => {
+      try {
+        const token = await historyAccessToken()
+        const { sessions = [] } = await requestHistoryRead('/api/history/sessions', token)
+        const details = await Promise.all(sessions.slice(0, 12).map((session) => requestHistoryRead(`/api/history/sessions/${session.id}`, token)))
+        const remoteEntries = details.flatMap((detail) => (detail.radio || []).map((entry) => {
+          const telemetry = Array.isArray(entry.telemetry_snapshots) ? entry.telemetry_snapshots[0] : entry.telemetry_snapshots
+          const recordedAt = entry.recorded_at || new Date().toISOString()
+          return {
+            id: `supabase-${entry.id}`,
+            recordNumber: 0,
+            role: entry.role,
+            text: entry.transcript,
+            mood: entry.detected_mood || (entry.role === 'ai' ? 'AI' : 'REVIEW'),
+            issue: entry.fused_issue || '',
+            ts: new Date(recordedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            createdAt: recordedAt,
+            lapNumber: telemetry?.lap_number || null,
+            lapProgress: telemetry?.lap_progress || 0,
+            lapSeconds: telemetry?.lap_seconds || 0,
+            circuit: entry.circuit_id || detail.session?.circuit_name || '',
+          }
+        }))
+        if (!cancelled && remoteEntries.length > 0) {
+          setConversationLog((current) => current.length > 0 ? current : remoteEntries.map((entry, index) => ({ ...entry, recordNumber: index + 1 })))
+        }
+      } catch {
+        // LocalStorage remains the offline demo source when Supabase history is unavailable.
+      }
+    }
+    void loadRemoteHistory()
+    return () => { cancelled = true }
+  }, [])
 
   // One Supabase session represents one started lap. It is created automatically
   // and is finished as either completed or stopped when the run ends.
@@ -1059,6 +1150,15 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
       level
     }
   }, [stressTemp, stressTrackTemp, stressGForce, stressLap, stressHydrationOverride])
+
+  const conversationMeta = () => ({
+    createdAt: new Date().toISOString(),
+    recordNumber: conversationLog.length + 1,
+    lapNumber: replayData?.comparison?.current?.lap_number || null,
+    lapProgress: Number(lapProgress.toFixed(4)),
+    lapSeconds: Number((lapProgress * (replayData?.comparison?.current?.duration || 90)).toFixed(3)),
+    circuit: replayData?.session?.circuit_short_name || replayCircuit,
+  })
 
   const buildHistoryTelemetry = useCallback((capture, progressOverride = lapProgress) => {
     const actualLap = replayData?.comparison?.current
@@ -1336,6 +1436,7 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
 
     // Append to full conversation history
     setConversationLog(prev => [...prev, {
+      ...conversationMeta(),
       id: `${Date.now()}-engineer`,
       role: 'engineer',
       text: text || engineerTranscript || '',
@@ -1494,6 +1595,7 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
       const nowTs = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       setConversationLog(prev => [...prev,
         {
+          ...conversationMeta(),
           id: `${Date.now()}-driver`,
           role: 'driver',
           text: text || driverTranscript || '',
@@ -1502,6 +1604,7 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
           ts: nowTs,
         },
         {
+          ...conversationMeta(),
           id: `${Date.now()}-ai`,
           role: 'ai',
           text: res.engineerReply || 'Copy. State the car issue and the affected corner.',
@@ -1575,8 +1678,8 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
       // Append fallback driver + AI thread to conversation log
       const nowTs = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       setConversationLog(prev => [...prev,
-        { id: `${Date.now()}-driver`, role: 'driver', text: text || driverTranscript || '', mood: finalMood, issue: local.issue || '', ts: nowTs },
-        { id: `${Date.now()}-ai`, role: 'ai', text: autoResponse.reply || 'Copy.', mood: 'AI', issue: autoResponse.display || 'PITWALL AI', ts: nowTs },
+        { ...conversationMeta(), id: `${Date.now()}-driver`, role: 'driver', text: text || driverTranscript || '', mood: finalMood, issue: local.issue || '', ts: nowTs },
+        { ...conversationMeta(), id: `${Date.now()}-ai`, role: 'ai', text: autoResponse.reply || 'Copy.', mood: 'AI', issue: autoResponse.display || 'PITWALL AI', ts: nowTs },
       ])
       void recordRadioHistory({
         role: 'driver',
@@ -1742,12 +1845,12 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
       />}
 
       {/* Persistent blue live-signal panel. It becomes readable once the wheel locks. */}
-      <div className="sequence-radio" style={{ opacity: lapState === 'idle' ? panelOpacity : 0, pointerEvents: lapState === 'idle' && panelOpacity > .5 ? 'auto' : 'none', transform: `translateX(${(1 - panelOpacity) * 36}px)` }}>
+      <div className="sequence-radio" style={{ opacity: panelOpacity, pointerEvents: panelOpacity > .5 ? 'auto' : 'none', transform: `translateX(${(1 - panelOpacity) * 36}px)` }}>
         <LiveRadioCard team={team} onOpen={() => onStart?.()} signalMessage={driverProcessing ? 'TRANSCRIBING / ANALYSING…' : driverTranscript ? `DRIVER: ${driverTranscript}` : ''} mood={driverMood} issue={driverIssue} reply={driverReply} processing={driverProcessing} confidence={driverConfidence} timestamp={driverTimestamp} />
       </div>
 
       {/* Driver-focused auto reply. Manual engineer radio remains an override. */}
-      <div className="cockpit-transcript cockpit-transcript-left" style={{ opacity: lapState === 'idle' ? panelOpacity : 0, pointerEvents: lapState === 'idle' && panelOpacity > .5 ? 'auto' : 'none', transform: `translateX(${(1 - panelOpacity) * -28}px)` }}>
+      <div className="cockpit-transcript cockpit-transcript-left" style={{ opacity: panelOpacity, pointerEvents: panelOpacity > .5 ? 'auto' : 'none', transform: `translateX(${(1 - panelOpacity) * -28}px)` }}>
         <div className="ct-label"><span className="ct-dot" /> ENGINEER RADIO / MANUAL OVERRIDE</div>
         {engineerProcessing
           ? <p className="ct-processing">PROCESSING…</p>
@@ -1858,6 +1961,7 @@ function analyseDriverMessage(message) {
     'ridiculous', 'useless', 'idiot', 'stupid', 'terrible', 'horrible',
     'awful', 'pathetic', 'garbage', 'trash', 'dammit', 'bollocks', 'crap',
     'screw', 'sucks', 'hate', 'worst', 'disaster', 'unbelievable', 'insane',
+    'broken', 'unacceptable', 'nightmare', 'impossible', 'problem', 'issue',
   ]
   
   // Browser SpeechRecognition automatically censors profanity with asterisks (e.g., ****)
@@ -1866,11 +1970,10 @@ function analyseDriverMessage(message) {
   const cussCount = rawCussCount + censoredCount
 
   // Frustration phrases (negative statements even without cuss words)
-  const frustrated = /can't|cannot|won't|not working|no grip|no traction|losing|sliding|oversteering|understeering|too (slow|fast|wide|tight)|going (wide|off|off-track)|missing|struggling|problem|issue|wrong|bad|worse|losing it/i.test(text)
+  const frustrated = /can't|cannot|won't|not working|no grip|no traction|losing|sliding|oversteering|understeering|too (slow|fast|wide|tight)|going (wide|off|off-track)|missing|struggling|problem|issue|wrong|bad|worse|losing it|broken|unacceptable|nightmare|impossible/i.test(text)
 
   let state = 'CALM'
   if (/\bhelp\b|emergency|urgent|respond|can't hear|radio (failure|broken|down)/i.test(text)) state = 'URGENT'
-  else if (cussCount >= 2) state = 'ANGRY'
   else if (cussCount >= 1) state = 'ANGRY'
   else if (frustrated) state = 'FRUSTRATED'
   else if (/rear|slid|throttle|traction|snap/.test(text)) state = 'FRUSTRATED'
@@ -1901,12 +2004,14 @@ function autoEngineerResponseLocal(issue, message, mood) {
     'TYRE / WHEEL': { reply: `Copy. Tyre or wheel concern${atTurn}. Confirm front or rear, then describe the grip change.`, display: `TYRE CHECK${displayTurn}`, action: 'Confirm whether the issue is at the front or rear before changing setup.' },
     'CAR BALANCE': { reply: `Copy. Balance issue${atTurn}. Confirm whether it is front or rear limited.`, display: `BALANCE CHECK${displayTurn}`, action: 'Confirm the affected axle and corner before a manual engineer response.' },
     'BRAKING': { reply: `Copy. Brake issue${atTurn}. Brake earlier and keep the release smooth.`, display: `BRAKE EARLY${displayTurn}`, action: 'Brake earlier and release progressively.' },
+    'GENERAL COMPLAINT': { reply: 'Copy. State the car system, the corner, and whether it is getting worse.', display: 'REPORT ISSUE', action: 'State the system, corner, and severity.' },
     'RADIO FAILURE': { reply: 'Copy. Radio check. Repeat only the critical car issue.', display: 'RADIO CHECK', action: 'Use short repeat-back messages until signal is clear.' },
     'PIT REQUEST': { reply: 'Copy. Pit request received. We are checking the window; stay on the current plan.', display: 'STAY ON PLAN', action: 'Await manual pit-wall confirmation before changing strategy.' },
     'RACE CONTROL': { reply: 'Copy. Follow the delta and wait for the next call.', display: 'HOLD DELTA', action: 'Follow the delta; await the next pit-wall instruction.' },
   }
   if (responses[issue]) return responses[issue]
-  if (mood === 'ANGRY') return { reply: 'Copy. We hear you. Give us the car issue and corner.', display: 'REPORT ISSUE', action: 'State the issue and the affected corner.' }
+  if (mood === 'ANGRY') return { reply: 'Copy. That sounds serious. State the car system, the corner, and whether it is getting worse.', display: 'REPORT ISSUE', action: 'State the system, corner, and severity.' }
+  if (mood === 'FRUSTRATED') return { reply: 'Copy. Keep it short: issue, corner, and severity.', display: 'ISSUE / CORNER', action: 'Report the issue, corner, and severity.' }
   return { reply: 'Copy. State the car issue and the affected corner.', display: 'REPORT ISSUE', action: 'State the issue and affected corner.' }
 }
 
@@ -1980,6 +2085,15 @@ async function requestHistory(path, body, accessToken) {
   })
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(payload.error || 'Supabase upload failed.')
+  return payload
+}
+
+async function requestHistoryRead(path, accessToken) {
+  const response = await fetch(apiUrl(path), {
+    headers: { authorization: `Bearer ${accessToken}` },
+  })
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(payload.error || 'Supabase history could not be loaded.')
   return payload
 }
 
