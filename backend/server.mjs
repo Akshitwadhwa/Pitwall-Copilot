@@ -5,6 +5,16 @@ import path from 'node:path'
 import { detectMoodFromText, detectMoodFromAudio } from './src/mood.mjs'
 import { extractEngineerKeywords, primaryKeyword } from './src/keywords.mjs'
 import { transcribeAudio } from './src/transcription.mjs'
+import { buildTurnMarkers, resolveTrackContext } from './src/track-context.mjs'
+import {
+  createHistorySession,
+  finishHistorySession,
+  getHistorySession,
+  historyStorageStatus,
+  listHistorySessions,
+  logHistoryEvent,
+  saveHistoryTelemetry,
+} from './src/database.mjs'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 const examples = JSON.parse(await readFile(path.join(root, 'data/hf-slice.json'), 'utf8'))
@@ -21,7 +31,7 @@ function json(response, status, payload) {
   response.writeHead(status, {
     'content-type': 'application/json',
     'access-control-allow-origin': '*',
-    'access-control-allow-headers': 'content-type',
+    'access-control-allow-headers': 'content-type, authorization',
     'access-control-allow-methods': 'POST, GET, OPTIONS',
   })
   response.end(JSON.stringify(payload))
@@ -50,6 +60,17 @@ function bestExample(message, direction) {
 function turnFromMessage(message) {
   const match = message.match(/turn\s*(\d{1,2})/i)
   return match ? `T${match[1]}` : ''
+}
+
+function accessTokenFrom(request) {
+  const authorization = request.headers.authorization || ''
+  const match = authorization.match(/^Bearer\s+(.+)$/i)
+  if (!match) {
+    const error = new Error('A signed-in Supabase user is required for history storage.')
+    error.statusCode = 401
+    throw error
+  }
+  return match[1]
 }
 
 // The Copilot must never pretend to make a race-strategy decision. It gives the
@@ -179,7 +200,7 @@ async function huggingFaceLabel(message, direction) {
 
 // ─── Analyse: Driver → Engineer ───────────────────────────────────────────────
 
-async function analyseDriver(message, team, audioFeatures) {
+async function analyseDriver(message, team, audioFeatures, trackContext = null) {
   const match = bestExample(message, 'driver_to_engineer')
   const fallback = deterministicDriverAnalysis(message)
   const hfLabel = match?.score >= 0.28 ? null : await huggingFaceLabel(message, 'driver_to_engineer')
@@ -199,6 +220,7 @@ async function analyseDriver(message, team, audioFeatures) {
     direction: 'driver_to_engineer',
     team: team || null,
     original: message,
+    trackContext,
     matchedExample: match?.example?.utterance || null,
     retrievalScore: Number((match?.score || 0).toFixed(2)),
     provider: hfLabel
@@ -282,7 +304,8 @@ export async function handler(request, response) {
       examples: examples.length,
       model: HF_MODEL,
       whisperModel: 'openai/whisper-large-v3',
-      features: ['mood-detection', 'multi-keyword', 'voice-transcription', 'auto-engineer-reply'],
+      features: ['mood-detection', 'multi-keyword', 'voice-transcription', 'auto-engineer-reply', 'session-history'],
+      history: historyStorageStatus(),
     })
   }
 
@@ -319,6 +342,7 @@ export async function handler(request, response) {
       comparison: replayComparison(race),
       track_position: trackPosition,
       car_data: carData,
+      turn_markers: buildTurnMarkers(circuit.toLowerCase(), race),
       weather: race.weather,
       radio_clips: race.radio_clips,
       laps: race.laps.filter((lap) => lap.driver_number === race.selected_driver.driver_number),
@@ -334,7 +358,10 @@ export async function handler(request, response) {
       }
       // Optional audio features (rms, pitch) sent from browser audio analysis
       const audioFeatures = input.audioFeatures || null
-      return json(response, 200, await analyseDriver(input.message.trim(), input.team, audioFeatures))
+      const circuitId = String(input.circuit || '').toLowerCase()
+      const race = nightRaceData.races[circuitId]
+      const trackContext = race ? resolveTrackContext(circuitId, race, input.lapProgress) : null
+      return json(response, 200, await analyseDriver(input.message.trim(), input.team, audioFeatures, trackContext))
     } catch (error) {
       return json(response, 400, { error: error.message || 'invalid request' })
     }
@@ -390,6 +417,67 @@ export async function handler(request, response) {
       })
     } catch (error) {
       return json(response, 400, { error: error.message || 'transcription request failed' })
+    }
+  }
+
+  // ─── Persistent history ──────────────────────────────────────────────────
+  // Every request carries the signed-in user's Supabase token. database.mjs
+  // forwards that token to Postgres, so the team RLS rules apply to every query.
+  if (request.method === 'POST' && request.url === '/api/history/start-session') {
+    try {
+      const input = await readJsonBody(request)
+      const session = await createHistorySession(input, accessTokenFrom(request))
+      return json(response, 201, { session })
+    } catch (error) {
+      return json(response, error.statusCode || 400, { error: error.message || 'could not start history session' })
+    }
+  }
+
+  if (request.method === 'POST' && request.url === '/api/history/log-event') {
+    try {
+      const input = await readJsonBody(request)
+      const event = await logHistoryEvent(input, accessTokenFrom(request))
+      return json(response, 201, { event })
+    } catch (error) {
+      return json(response, error.statusCode || 400, { error: error.message || 'could not save history event' })
+    }
+  }
+
+  if (request.method === 'POST' && request.url === '/api/history/log-telemetry') {
+    try {
+      const input = await readJsonBody(request)
+      const telemetry = await saveHistoryTelemetry(input, accessTokenFrom(request))
+      return json(response, 201, { telemetry })
+    } catch (error) {
+      return json(response, error.statusCode || 400, { error: error.message || 'could not save telemetry snapshot' })
+    }
+  }
+
+  if (request.method === 'POST' && request.url === '/api/history/end-session') {
+    try {
+      const input = await readJsonBody(request)
+      const session = await finishHistorySession(input.sessionId, input.status, accessTokenFrom(request))
+      return json(response, 200, { session })
+    } catch (error) {
+      return json(response, error.statusCode || 400, { error: error.message || 'could not end history session' })
+    }
+  }
+
+  if (request.method === 'GET' && request.url?.startsWith('/api/history/sessions/')) {
+    try {
+      const id = decodeURIComponent(new URL(request.url, 'http://localhost').pathname.split('/').pop())
+      return json(response, 200, await getHistorySession(id, accessTokenFrom(request)))
+    } catch (error) {
+      return json(response, error.statusCode || 404, { error: error.message || 'history session not found' })
+    }
+  }
+
+  if (request.method === 'GET' && request.url?.startsWith('/api/history/sessions')) {
+    try {
+      const team = new URL(request.url, 'http://localhost').searchParams.get('team')
+      return json(response, 200, { sessions: await listHistorySessions(team, accessTokenFrom(request)) })
+    } catch (error) {
+      return json(response, error.statusCode || 400, { error: error.message || 'could not load history sessions' })
     }
   }
 

@@ -12,6 +12,7 @@ import audiDriverOne from './assets/Audi-Driver-1.jpeg'
 import audiDriverTwo from './assets/Audi-Driver-2.jpeg'
 import mclarenDriverOne from './assets/mclaren-driver- 1.jpg.webp'
 import mclarenDriverTwo from './assets/mclaren-driver-2.jpg.webp'
+import { historyAccessToken, isHistoryConfigured } from './supabase'
 
 const teams = [
   {
@@ -287,14 +288,11 @@ function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, enginee
 
   const currentKw = kwVisible && keywords?.[kwIndex] ? keywords[kwIndex] : null
   const mode = engineerRecording ? 'engineer' : driverRecording ? 'driver' : 'idle'
-  const engineerModeReady = controlsEnabled && lapReady && (lapState === 'idle' || lapState === 'running') && !engineerRecording && !driverRecording
+  const engineerModeReady = controlsEnabled && (lapState === 'idle' || lapState === 'running') && !engineerRecording && !driverRecording
   const engineerModeButtonLabel = lapState === 'running'
     ? 'STOP LAP'
-    : engineerModeReady
-    ? 'START LAP'
-    : !lapReady ? 'LOAD DATA'
+    : engineerModeReady ? 'START LAP'
     : !controlsEnabled ? 'LOCK WHEEL'
-    : lapState === 'running' ? 'LAP ACTIVE'
     : 'RUN COMPLETE'
 
   // Live F1 telemetry dashboard state declared unconditionally at the top level
@@ -496,7 +494,7 @@ function F1Wheel({ team, keywords, showKeywords, controlsEnabled = true, enginee
         role="button"
         tabIndex={engineerModeReady ? '0' : '-1'}
         aria-disabled={!engineerModeReady}
-        aria-label={!lapReady ? lapAvailabilityLabel || 'Loading lap data' : lapState === 'running' ? 'Stop lap replay and open Engineer Mode' : lapState === 'finished' ? 'Open Engineer Mode from the completed lap panel' : controlsEnabled ? 'Start lap replay in Engineer Mode' : 'Engineer Mode locked until wheel is engaged'}
+        aria-label={lapState === 'running' ? 'Stop lap replay and open Engineer Mode' : lapState === 'finished' ? 'Open Engineer Mode from the completed lap panel' : !lapReady ? `${lapAvailabilityLabel || 'Replay data loading'}. Start the built-in lap animation.` : controlsEnabled ? 'Start lap replay in Engineer Mode' : 'Engineer Mode locked until wheel is engaged'}
         style={{ cursor: engineerModeReady ? 'pointer' : 'not-allowed' }}
         onClick={() => engineerModeReady && (lapState === 'running' ? onStopLap?.() : onStartLap?.())}
         onKeyDown={(event) => engineerModeReady && (event.key === 'Enter' || event.key === ' ') && (lapState === 'running' ? onStopLap?.() : onStartLap?.())}
@@ -647,7 +645,7 @@ function EmotionLens({ currentLap, referenceLap, radioEvents = [], conversationL
   </section>
 }
 
-function LapRunConsole({ team, lapState, lapProgress, driverTranscript, engineerTranscript, autoEngineerReply, driverMood, driverIssue, replayData, onEngineerMode }) {
+function LapRunConsole({ team, lapState, lapProgress, driverTranscript, engineerTranscript, autoEngineerReply, driverMood, driverIssue, replayData, onEngineerMode, uploadState, uploadMessage, onUploadNow }) {
   const actualLap = replayData?.comparison?.current
   const track = normaliseTrackPoints(replayData?.track_position, 420, 220, 30)
   const car = track[Math.min(track.length - 1, Math.round(lapProgress * Math.max(0, track.length - 1)))]
@@ -683,13 +681,18 @@ function LapRunConsole({ team, lapState, lapProgress, driverTranscript, engineer
       <div className="lap-panel-label"><i /> LAP TIMELINE</div>
       <div className="lap-timeline-line"><i style={{ height: `${lapProgress * 100}%` }} /></div>
       <ol>{timeline.map(([label, at, value]) => <li key={label} className={lapProgress >= at ? 'is-passed' : ''}><span>{label}</span><b>{value}</b></li>)}</ol>
+      <button type="button" className={`lap-upload-button is-${uploadState}`} onClick={onUploadNow} disabled={uploadState === 'uploading' || uploadState === 'unavailable'}>
+        {uploadState === 'uploading' ? 'UPLOADING…' : uploadState === 'saved' ? 'UPLOAD SAVED ✓' : 'UPLOAD TO SUPABASE'}
+      </button>
+      <small className={`lap-upload-state is-${uploadState}`}>{uploadMessage}</small>
       <button type="button" onClick={onEngineerMode} disabled={lapState !== 'finished'}>ENGINEER MODE <ArrowUpRight size={13} /></button>
     </article>
   </section>
 }
 
-function EngineerMode({ team, driverTranscript, driverIssue, driverMood, radioEvents, autoEngineerResponse, replayData, stoppedEarly = false, stoppedAt = 0, onClose, stressMetrics, setStressTemp, setStressTrackTemp, setStressGForce, setStressLap, conversationLog = [] }) {
+function EngineerMode({ team, driverTranscript, driverIssue, driverMood, driverTrackContext = null, radioEvents, autoEngineerResponse, replayData, replayError = '', stoppedEarly = false, stoppedAt = 0, onClose, stressMetrics, setStressTemp, setStressTrackTemp, setStressGForce, setStressLap, conversationLog = [] }) {
   const [issueFocused, setIssueFocused] = useState(false)
+  const [manualReview, setManualReview] = useState({ battle: 'NOT REVIEWED', drs: 'NOT REVIEWED', trackState: 'AUTO' })
   const issue = driverIssue || 'AWAITING RADIO REPORT'
   const report = driverTranscript || 'No driver radio has been captured for this run yet.'
   const currentLap = replayData?.comparison?.current
@@ -698,9 +701,14 @@ function EngineerMode({ team, driverTranscript, driverIssue, driverMood, radioEv
   const track = normaliseTrackPoints(replayData?.track_position, 860, 560, 64)
   const trackPolyline = track.map((point) => `${point.x},${point.y}`).join(' ')
   const radioEvent = radioEvents?.at(-1)
-  const markerProgress = radioEvent?.progress ?? .58
+  const trackContext = driverTrackContext || radioEvent?.trackContext || null
+  const markerProgress = radioEvent?.progress ?? trackContext?.progress ?? .58
   const markerIndex = Math.min(track.length - 1, Math.max(0, Math.round(markerProgress * Math.max(0, track.length - 1))))
   const marker = track[markerIndex]
+  const turnPoints = (replayData?.turn_markers || []).map((turn) => ({
+    ...turn,
+    point: track[Math.min(track.length - 1, Math.max(0, Math.round(turn.progress * Math.max(0, track.length - 1))))],
+  })).filter((turn) => turn.point)
   const issueZone = driverIssue ? track.slice(Math.max(0, markerIndex - 9), Math.min(track.length, markerIndex + 10)) : []
   const issueZonePoints = issueZone.map((point) => `${point.x},${point.y}`).join(' ')
   const carData = replayData?.car_data || []
@@ -742,12 +750,16 @@ function EngineerMode({ team, driverTranscript, driverIssue, driverMood, radioEv
 
     <div className="engineer-console-grid">
       <section className="engineer-map-pane">
-        <div className="map-pane-head"><span><i /> TRACK MAP / RADIO POSITION</span><b>{stoppedEarly ? `STOPPED ${lapTimeLabel(stoppedAt)}` : 'RUN REVIEW'}</b></div>
+        <div className="map-pane-head"><span><i /> TRACK MAP / RADIO POSITION</span><b>{trackContext?.label || (stoppedEarly ? `STOPPED ${lapTimeLabel(stoppedAt)}` : 'RUN REVIEW')}</b></div>
         <svg viewBox="0 0 860 560" role="img" aria-label="Circuit map with the driver radio issue highlighted">
           {track.length > 1 ? <>
             <polyline points={trackPolyline} fill="none" stroke="#263a36" strokeWidth="27" strokeLinecap="round" strokeLinejoin="round" />
             <polyline points={trackPolyline} fill="none" stroke="#dcebe6" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="11 14" opacity=".72" />
             <polyline points={trackPolyline} fill="none" stroke={team.color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" opacity=".58" />
+            {turnPoints.map((turn) => <g className="track-turn-marker" key={`turn-${turn.number}`}>
+              <circle cx={turn.point.x} cy={turn.point.y} r="11" />
+              <text x={turn.point.x} y={turn.point.y + 3.5}>{turn.number}</text>
+            </g>)}
             {issueZone.length > 1 && <polyline points={issueZonePoints} fill="none" stroke="#f21f2d" strokeWidth="11" strokeLinecap="round" strokeLinejoin="round" className="issue-zone-line" />}
             {marker && <>
               <g className="track-issue-target" role="button" tabIndex="0" aria-label="Focus the reported issue on the track" onClick={() => setIssueFocused((focused) => !focused)} onKeyDown={(event) => (event.key === 'Enter' || event.key === ' ') && setIssueFocused((focused) => !focused)}>
@@ -760,10 +772,13 @@ function EngineerMode({ team, driverTranscript, driverIssue, driverMood, radioEv
                 {issueFocused && <text x={Math.min(marker.x + 77, 639)} y={Math.max(marker.y - 60, 85)} fill="#a9bdb6" fontSize="9" fontFamily="DM Mono, monospace">{driverMood || 'RADIO'} / {lapTimeLabel(radioEvent?.seconds ?? markerProgress * (currentLap?.duration || 0))}</text>}
               </g>
             </>}
-          </> : <text x="430" y="280" fill="#95aaa3" textAnchor="middle" fontSize="15" fontFamily="DM Mono, monospace">TRACK DATA LOADING</text>}
+          </> : <>
+            <text x="430" y="268" fill="#f0b040" textAnchor="middle" fontSize="14" fontFamily="DM Mono, monospace">{replayError ? 'TRACK API OFFLINE' : 'TRACK DATA LOADING'}</text>
+            <text x="430" y="296" fill="#95aaa3" textAnchor="middle" fontSize="10" fontFamily="DM Mono, monospace">{replayError ? 'START BACKEND / PORT 8787' : 'CONNECTING TO REPLAY SOURCE'}</text>
+          </>}
         </svg>
-        <div className="map-event-log"><span>RADIO LOG</span><b>{driverName} / {driverMood || 'NO EMOTION SIGNAL'} / {issue}</b><p>“{report}”</p></div>
-        <div className="track-legend"><span><i /> CURRENT LAP</span><span><i /> REFERENCE LAP</span><span><i /> ISSUE ZONE</span></div>
+        <div className="map-event-log"><span>RADIO LOG</span><b>{driverName} / {driverMood || 'NO EMOTION SIGNAL'} / {issue}</b><p>“{report}”</p>{trackContext && <small>{trackContext.label} · {trackContext.sampledSpeedKph ?? '—'} KM/H · {trackContext.trackState}</small>}</div>
+        <div className="track-legend"><span><i /> CURRENT LAP</span><span><i /> REFERENCE LAP</span><span><i /> TURN MARKER</span><span><i /> ISSUE ZONE</span></div>
       </section>
 
       <aside className="engineer-data-pane">
@@ -777,6 +792,16 @@ function EngineerMode({ team, driverTranscript, driverIssue, driverMood, radioEv
           <article><span>EVENT SPEED</span><b>{Number.isFinite(telemetry?.speed) ? `${telemetry.speed} KM/H` : '—'}</b><small>Throttle {telemetry?.throttle ?? '—'}%</small></article>
           <article><span>BRAKE / GEAR</span><b>{telemetry?.brake ? 'BRAKING' : 'OFF BRAKE'}</b><small>Gear {telemetry?.gear ?? '—'}</small></article>
         </div>
+        <section className="manual-review-card">
+          <span>RADIO POSITION / MANUAL REVIEW</span>
+          <b>{trackContext?.label || 'AWAITING TRACK CONTEXT'}</b>
+          <p>{trackContext ? `${trackContext.sampledSpeedKph ?? '—'} KM/H at report · Gear ${trackContext.sampledGear ?? '—'} · ${trackContext.sampledBrake ? 'braking' : 'off brake'}` : 'Record driver radio while the replay data is loaded to attach turn and speed context.'}</p>
+          <div className="manual-review-controls">
+            <label>BATTLE<select value={manualReview.battle} onChange={(event) => setManualReview((review) => ({ ...review, battle: event.target.value }))}><option>NOT REVIEWED</option><option>IN BATTLE</option><option>CLEAR AIR</option></select></label>
+            <label>DRS<select value={manualReview.drs} onChange={(event) => setManualReview((review) => ({ ...review, drs: event.target.value }))}><option>NOT REVIEWED</option><option>DRS ON</option><option>DRS OFF</option></select></label>
+            <label>TRACK<select value={manualReview.trackState} onChange={(event) => setManualReview((review) => ({ ...review, trackState: event.target.value }))}><option>AUTO</option><option>CORNER</option><option>STRAIGHT</option></select></label>
+          </div>
+        </section>
         <section className="engineer-action-card"><span>COPILOT ACTION</span><b>{autoEngineerResponse?.display || 'AWAIT ENGINEER'}</b><p>{autoEngineerResponse?.reply || 'No automated response is attached yet. Use the driver radio to create one.'}</p></section>
       </aside>
     </div>
@@ -916,6 +941,7 @@ function EngineerMode({ team, driverTranscript, driverIssue, driverMood, radioEv
 
 function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
   const sequenceRef = useRef()
+  const lockedScrollYRef = useRef(null)
   const [progress, setProgress] = useState(0)
   const [pointer, setPointer] = useState({ x: 0, y: 0 })
   const [lapState, setLapState] = useState('idle')
@@ -926,6 +952,7 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
   const [replayData, setReplayData] = useState(null)
   const [replayLoading, setReplayLoading] = useState(true)
   const [replayError, setReplayError] = useState('')
+  const [replayRequest, setReplayRequest] = useState(0)
 
   // Voice recorder instances
   const engineerRecorder = useVoiceRecorder()
@@ -940,11 +967,22 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
   const [driverReply, setDriverReply] = useState('')
   const [autoEngineerResponse, setAutoEngineerResponse] = useState(null)
   const [driverConfidence, setDriverConfidence] = useState(null)
+  const [driverTrackContext, setDriverTrackContext] = useState(null)
   const [driverTimestamp, setDriverTimestamp] = useState('')
   const [driverProcessing, setDriverProcessing] = useState(false)
   const [radioEvents, setRadioEvents] = useState([])
   // Full conversation history: [{id, role:'driver'|'engineer'|'ai', text, mood, issue, ts}]
   const [conversationLog, setConversationLog] = useState([])
+
+  // One Supabase session represents one started lap. It is created automatically
+  // and is finished as either completed or stopped when the run ends.
+  const historySessionRef = useRef(null)
+  const historyFinishingRef = useRef(false)
+  const historyStartingRef = useRef(null)
+  const [uploadState, setUploadState] = useState(isHistoryConfigured ? 'idle' : 'unavailable')
+  const [uploadMessage, setUploadMessage] = useState(isHistoryConfigured
+    ? 'AUTO-SAVES AT LAP START AND FINISH'
+    : 'ADD VITE_SUPABASE VALUES TO frontend/.env')
 
   // Wheel keyword display
   const [wheelKeywords, setWheelKeywords] = useState([])
@@ -1022,13 +1060,162 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
     }
   }, [stressTemp, stressTrackTemp, stressGForce, stressLap, stressHydrationOverride])
 
+  const buildHistoryTelemetry = useCallback((capture, progressOverride = lapProgress) => {
+    const actualLap = replayData?.comparison?.current
+    const duration = actualLap?.duration || 90
+    return {
+      lapNumber: actualLap?.lap_number || null,
+      lapProgress: Number(progressOverride.toFixed(4)),
+      lapSeconds: Number((progressOverride * duration).toFixed(3)),
+      cockpitTemp: stressMetrics.temp,
+      trackTemp: stressMetrics.trackTemp,
+      gForce: stressMetrics.gforce,
+      hydration: stressMetrics.hydration,
+      psi: stressMetrics.psi,
+      heartRate: stressMetrics.hr,
+      breathingRate: stressMetrics.br,
+      source: replayData ? 'historical' : 'demo-derived',
+      rawPayload: {
+        capture,
+        recorded_map: {
+          circuit_id: replayCircuit,
+          circuit_name: replayData?.session?.circuit_short_name || replayCircuit,
+          session_key: replayData?.session?.session_key || null,
+          map_source: replayData ? 'openf1-replay-reference' : 'local-fallback',
+        },
+        lap_comparison: replayData?.comparison || null,
+      },
+    }
+  }, [lapProgress, replayCircuit, replayData, stressMetrics])
+
+  const startHistorySession = useCallback(async () => {
+    if (!isHistoryConfigured) throw new Error('Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to frontend/.env first.')
+    if (historySessionRef.current) return historySessionRef.current
+    if (historyStartingRef.current) return historyStartingRef.current
+
+    setUploadState('uploading')
+    setUploadMessage('CREATING LAP RECORD…')
+    const pending = (async () => {
+      const token = await historyAccessToken()
+      const { session } = await requestHistory('/api/history/start-session', {
+        teamId: team.id,
+        circuitName: replayData?.session?.circuit_short_name || replayCircuit,
+        circuitYear: replayData?.session?.year || 2023,
+        driverName: team.drivers?.[0]?.name || 'Demo driver',
+        source: replayData ? 'historical-replay' : 'live-demo',
+      }, token)
+      historySessionRef.current = session.id
+      await requestHistory('/api/history/log-telemetry', {
+        sessionId: session.id,
+        telemetry: buildHistoryTelemetry('lap-start', 0),
+      }, token)
+      setUploadState('saved')
+      setUploadMessage(`LAP RECORD ACTIVE / ${session.id.slice(0, 8).toUpperCase()}`)
+      return session.id
+    })()
+
+    historyStartingRef.current = pending
+    try {
+      return await pending
+    } catch (error) {
+      setUploadState('error')
+      setUploadMessage(error.message || 'UPLOAD COULD NOT START')
+      throw error
+    } finally {
+      historyStartingRef.current = null
+    }
+  }, [buildHistoryTelemetry, replayCircuit, replayData, team])
+
+  const uploadLapSnapshot = useCallback(async (capture = 'manual-upload') => {
+    try {
+      setUploadState('uploading')
+      setUploadMessage('SAVING LAP STATE…')
+      const sessionId = await startHistorySession()
+      const token = await historyAccessToken()
+      await requestHistory('/api/history/log-telemetry', {
+        sessionId,
+        telemetry: buildHistoryTelemetry(capture),
+      }, token)
+      setUploadState('saved')
+      setUploadMessage(`MAP + TIME SAVED / ${capture.toUpperCase()}`)
+    } catch (error) {
+      setUploadState('error')
+      setUploadMessage(error.message || 'UPLOAD FAILED')
+    }
+  }, [buildHistoryTelemetry, startHistorySession])
+
+  const finishHistorySession = useCallback(async (status) => {
+    const sessionId = historySessionRef.current
+    if (!sessionId || historyFinishingRef.current) return
+    historyFinishingRef.current = true
+    try {
+      setUploadState('uploading')
+      setUploadMessage(status === 'stopped' ? 'SAVING INCOMPLETE LAP…' : 'SAVING COMPLETED LAP…')
+      const token = await historyAccessToken()
+      await requestHistory('/api/history/log-telemetry', {
+        sessionId,
+        telemetry: buildHistoryTelemetry(status === 'stopped' ? 'lap-stopped-incomplete' : 'lap-finished'),
+      }, token)
+      await requestHistory('/api/history/end-session', { sessionId, status }, token)
+      setUploadState('saved')
+      setUploadMessage(status === 'stopped' ? 'INCOMPLETE LAP SAVED' : 'COMPLETED LAP SAVED')
+    } catch (error) {
+      setUploadState('error')
+      setUploadMessage(error.message || 'FINAL UPLOAD FAILED')
+    } finally {
+      historyFinishingRef.current = false
+    }
+  }, [buildHistoryTelemetry])
+
+  const recordRadioHistory = useCallback(async ({ role, transcript, mood = null, issue = null, confidence = null, trackContext = null, provider = 'pitwall-ai' }) => {
+    if (!transcript?.trim() || (lapState !== 'running' && !historySessionRef.current)) return
+    try {
+      const sessionId = historySessionRef.current || await startHistorySession()
+      const token = await historyAccessToken()
+      await requestHistory('/api/history/log-event', {
+        sessionId,
+        role,
+        transcript,
+        detectedMood: mood,
+        moodConfidence: confidence,
+        issue,
+        classifierConfidence: confidence,
+        provider,
+        trackContext,
+        telemetry: buildHistoryTelemetry(`${role}-radio`),
+      }, token)
+      setUploadState('saved')
+      setUploadMessage(`${role.toUpperCase()} RADIO SAVED`)
+    } catch (error) {
+      setUploadState('error')
+      setUploadMessage(error.message || 'RADIO LOG NOT SAVED')
+    }
+  }, [buildHistoryTelemetry, lapState, startHistorySession])
+
   useEffect(() => {
     const updateProgress = () => {
       const section = sequenceRef.current
       if (!section) return
       const rect = section.getBoundingClientRect()
       const distance = section.offsetHeight - window.innerHeight
-      setProgress(Math.min(1, Math.max(0, -rect.top / distance)))
+      const nextProgress = Math.min(1, Math.max(0, -rect.top / distance))
+      const lockThreshold = 0.72
+
+      // The intro is a one-way onboarding transition. Once the wheel is locked
+      // and its controls become live, scrolling up keeps the user at that exact
+      // control position instead of returning to the non-interactive intro.
+      if (nextProgress >= lockThreshold && lockedScrollYRef.current === null) {
+        const sectionTop = window.scrollY + rect.top
+        lockedScrollYRef.current = sectionTop + distance * lockThreshold
+      }
+
+      if (lockedScrollYRef.current !== null && window.scrollY < lockedScrollYRef.current) {
+        window.scrollTo({ top: lockedScrollYRef.current, behavior: 'auto' })
+        setProgress(lockThreshold)
+        return
+      }
+
+      setProgress(nextProgress)
     }
     updateProgress()
     window.addEventListener('scroll', updateProgress, { passive: true })
@@ -1052,7 +1239,7 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
       .catch((error) => { if (!cancelled) { setReplayData(null); setReplayError(error.message) } })
       .finally(() => { if (!cancelled) setReplayLoading(false) })
     return () => { cancelled = true }
-  }, [replayCircuit])
+  }, [replayCircuit, replayRequest])
 
   // Replay is deliberately paced to the historical lap duration. A 1:35.257
   // Bahrain lap therefore takes 95.257 seconds in the interface, rather than
@@ -1078,6 +1265,11 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
     if (lapProgress >= 1) setLapState('finished')
   }, [lapProgress])
 
+  useEffect(() => {
+    if (lapState !== 'finished' || historyFinishingRef.current) return
+    void finishHistorySession(lapStoppedEarly ? 'stopped' : 'completed')
+  }, [finishHistorySession, lapState, lapStoppedEarly])
+
   // Auto-hide the 3 panels after 3 seconds when run completes
   useEffect(() => {
     let timeout
@@ -1090,12 +1282,22 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
   }, [lapState])
 
   const startLap = () => {
-    if (lapState === 'running' || !replayData) return
+    if (lapState === 'running') return
+    // The button remains usable while the historical source reconnects. The
+    // run uses the existing on-screen circuit fallback, then upgrades to the
+    // selected circuit data whenever the API becomes available.
+    if (!replayData) setReplayRequest((request) => request + 1)
     setEngineerMode(false)
     setLapProgress(0)
     setRadioEvents([])
+    setDriverTrackContext(null)
     setLapStoppedEarly(false)
+    historySessionRef.current = null
+    historyFinishingRef.current = false
+    setUploadState(isHistoryConfigured ? 'uploading' : 'unavailable')
+    setUploadMessage(isHistoryConfigured ? 'OPENING LAP RECORD…' : 'ADD VITE_SUPABASE VALUES TO frontend/.env')
     setLapState('running')
+    if (isHistoryConfigured) void startHistorySession()
   }
 
   const stopLap = () => {
@@ -1171,9 +1373,15 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
       setTimeout(() => setShowWheelKeywords(true), 60)
       setTimeout(() => setShowWheelKeywords(false), kws.length * 3000 + 300)
     } finally {
+      void recordRadioHistory({
+        role: 'engineer',
+        transcript: text || engineerTranscript || 'Engineer radio received.',
+        issue: 'MANUAL ENGINEER RADIO',
+        provider: 'manual-override',
+      })
       setEngineerProcessing(false)
     }
-  }, [engineerRecorder, driverRecorder, team, engineerTranscript])
+  }, [engineerRecorder, driverRecorder, team, engineerTranscript, recordRadioHistory])
 
   // ── Driver hold-to-speak ──
   const handleDriverDown = useCallback(async () => {
@@ -1227,7 +1435,10 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
 
     try {
       // Send transcript + audio features to backend for classification
-      const res = await requestRadioAnalysis('/api/analyse/driver', text || driverTranscript || '', team, audioFeatures)
+      const res = await requestRadioAnalysis('/api/analyse/driver', text || driverTranscript || '', team, audioFeatures, {
+        circuit: replayCircuit,
+        lapProgress,
+      })
       let textMood = res.mood || res.state || 'CALM'
       
       // Force text mood to ANGRY if explicit profanity is found, overriding backend
@@ -1272,6 +1483,7 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
       setDriverIssue(fusedIssue)
       setDriverConfidence(res.moodConfidence ?? res.confidence ?? null)
       setDriverReply(res.engineerReply || '')
+      setDriverTrackContext(res.trackContext || null)
       setAutoEngineerResponse({
         reply: res.engineerReply || 'Copy. State the car issue and the affected corner.',
         display: res.driverDisplay || res.keyword || 'REPORT ISSUE',
@@ -1310,9 +1522,27 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
           label: fusedIssue || 'RADIO EVENT',
           detail: `“${text || driverTranscript || 'Driver radio'}”`,
           transcript: text || driverTranscript || '',
+          trackContext: res.trackContext || null,
           source: 'LIVE RADIO',
         }].slice(-4))
       }
+
+      void recordRadioHistory({
+        role: 'driver',
+        transcript: text || driverTranscript || 'Driver radio received.',
+        mood: fusedMood,
+        issue: fusedIssue,
+        confidence: res.moodConfidence ?? res.confidence ?? null,
+        trackContext: res.trackContext || null,
+        provider: res.provider || 'pitwall-ai',
+      })
+      void recordRadioHistory({
+        role: 'ai',
+        transcript: res.engineerReply || 'Copy. State the car issue and the affected corner.',
+        issue: res.driverDisplay || res.keyword || 'PITWALL AI',
+        trackContext: res.trackContext || null,
+        provider: 'pitwall-ai-auto-reply',
+      })
 
       // Driver radio: wheel screen stays silent — only engineer-side messages display on the wheel.
     } catch {
@@ -1327,6 +1557,7 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
       const autoResponse = autoEngineerResponseLocal(local.issue, text || driverTranscript || '', finalMood)
       setDriverReply(autoResponse.reply)
       setAutoEngineerResponse(autoResponse)
+      setDriverTrackContext(null)
       if (lapState === 'running') {
         const duration = replayData?.comparison?.current?.duration || 90
         const eventProgress = Math.max(0, Math.min(1, lapProgress))
@@ -1347,10 +1578,23 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
         { id: `${Date.now()}-driver`, role: 'driver', text: text || driverTranscript || '', mood: finalMood, issue: local.issue || '', ts: nowTs },
         { id: `${Date.now()}-ai`, role: 'ai', text: autoResponse.reply || 'Copy.', mood: 'AI', issue: autoResponse.display || 'PITWALL AI', ts: nowTs },
       ])
+      void recordRadioHistory({
+        role: 'driver',
+        transcript: text || driverTranscript || 'Driver radio received.',
+        mood: finalMood,
+        issue: local.issue || 'RADIO EVENT',
+        provider: 'local-fallback',
+      })
+      void recordRadioHistory({
+        role: 'ai',
+        transcript: autoResponse.reply || 'Copy.',
+        issue: autoResponse.display || 'PITWALL AI',
+        provider: 'local-fallback-auto-reply',
+      })
     } finally {
       setDriverProcessing(false)
     }
-  }, [driverRecorder, engineerRecorder, team, driverTranscript, lapState, lapProgress, replayData])
+  }, [driverRecorder, engineerRecorder, team, driverTranscript, lapState, lapProgress, replayData, replayCircuit, recordRadioHistory, stressMetrics])
 
   const panelOpacity = Math.max(0, Math.min(1, (progress - .72) * 3.6))
   const controlsEnabled = progress >= 0.72
@@ -1492,6 +1736,9 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
         autoEngineerReply={autoEngineerResponse?.reply}
         replayData={replayData}
         onEngineerMode={() => setEngineerMode(true)}
+        uploadState={uploadState}
+        uploadMessage={uploadMessage}
+        onUploadNow={() => void uploadLapSnapshot('manual-upload')}
       />}
 
       {/* Persistent blue live-signal panel. It becomes readable once the wheel locks. */}
@@ -1520,9 +1767,11 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
         driverTranscript={driverTranscript} 
         driverIssue={driverIssue} 
         driverMood={driverMood} 
+        driverTrackContext={driverTrackContext}
         radioEvents={radioEvents} 
         autoEngineerResponse={autoEngineerResponse} 
         replayData={replayData} 
+        replayError={replayError}
         stoppedEarly={lapStoppedEarly} 
         stoppedAt={lapProgress * (replayData?.comparison?.current?.duration || 0)} 
         onClose={() => setEngineerMode(false)} 
@@ -1710,14 +1959,28 @@ function apiUrl(path) {
   return `${API_BASE_URL}${path}`
 }
 
-async function requestRadioAnalysis(path, message, team, audioFeatures) {
+async function requestRadioAnalysis(path, message, team, audioFeatures, context = {}) {
   const response = await fetch(apiUrl(path), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ message, team: team.name, audioFeatures: audioFeatures || undefined }),
+    body: JSON.stringify({ message, team: team.name, audioFeatures: audioFeatures || undefined, ...context }),
   })
   if (!response.ok) throw new Error('Radio analysis service unavailable')
   return response.json()
+}
+
+async function requestHistory(path, body, accessToken) {
+  const response = await fetch(apiUrl(path), {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+  })
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(payload.error || 'Supabase upload failed.')
+  return payload
 }
 
 async function requestTranscription(audioBlob, direction, team) {
