@@ -218,7 +218,7 @@ function StepHeader({ step, onBack, title }) {
   </header>
 }
 
-function LiveRadioCard({ team, onOpen, signalMessage = '', mood = '', issue = '', reply = '', processing = false, confidence = null, timestamp = '' }) {
+function LiveRadioCard({ team, onOpen, onAccessPitwall, signalMessage = '', mood = '', issue = '', reply = '', processing = false, confidence = null, timestamp = '' }) {
   const driverLabel = team?.driverLabel || team?.code || 'CH --'
   const messages = useMemo(() => [
     team ? `${team.name} radio online. The channel is tuned to this team's terminology.` : 'Select a team to tune the radio channel to its terminology.',
@@ -262,6 +262,7 @@ function LiveRadioCard({ team, onOpen, signalMessage = '', mood = '', issue = ''
     {reply && <div className="radio-reply"><span>ENGINEER REPLY</span><b>{reply}</b></div>}
     <div className="radio-metrics"><span>AI CONFIDENCE <b>{confidenceLabel}</b></span><span>RECEIVED <b>{timestamp || '—'}</b></span></div>
     <div className="radio-card-footer"><span>COMMUNICATION EVENT</span><span>LISTENING</span></div>
+    {onAccessPitwall && <button type="button" className="access-pitwall-button" onClick={(event) => { event.stopPropagation(); onAccessPitwall() }}>ACCESS PITWALL <ArrowUpRight size={13} /></button>}
   </aside>
 }
 
@@ -1846,7 +1847,7 @@ function CockpitLink({ team, onBack, onStart, onDriverSpeak }) {
 
       {/* Persistent blue live-signal panel. It becomes readable once the wheel locks. */}
       <div className="sequence-radio" style={{ opacity: panelOpacity, pointerEvents: panelOpacity > .5 ? 'auto' : 'none', transform: `translateX(${(1 - panelOpacity) * 36}px)` }}>
-        <LiveRadioCard team={team} onOpen={() => onStart?.()} signalMessage={driverProcessing ? 'TRANSCRIBING / ANALYSING…' : driverTranscript ? `DRIVER: ${driverTranscript}` : ''} mood={driverMood} issue={driverIssue} reply={driverReply} processing={driverProcessing} confidence={driverConfidence} timestamp={driverTimestamp} />
+        <LiveRadioCard team={team} onOpen={() => onStart?.()} onAccessPitwall={() => setEngineerMode(true)} signalMessage={driverProcessing ? 'TRANSCRIBING / ANALYSING…' : driverTranscript ? `DRIVER: ${driverTranscript}` : ''} mood={driverMood} issue={driverIssue} reply={driverReply} processing={driverProcessing} confidence={driverConfidence} timestamp={driverTimestamp} />
       </div>
 
       {/* Driver-focused auto reply. Manual engineer radio remains an override. */}

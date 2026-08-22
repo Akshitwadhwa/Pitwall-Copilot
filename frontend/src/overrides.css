@@ -1195,7 +1195,7 @@
 .cockpit-hood b { position: absolute; left: 50%; top: 36%; transform: translateX(-50%); color: #83b7a9; font: 10px 'DM Mono', monospace; letter-spacing: .22em; }
 .hood-light { position: absolute; top: 43%; width: 16%; height: 3px; background: var(--team); box-shadow: 0 0 17px var(--team); }.hood-left { left: 15%; }.hood-right { right: 15%; }
 
-.sequence-radio { position: absolute; z-index: 5; top: 34%; right: max(40px, calc((100vw - 1360px) / 2)); width: 275px; transition: opacity .2s linear, transform .2s linear; }
+.sequence-radio { position: absolute; z-index: 10; top: 34%; right: max(40px, calc((100vw - 1360px) / 2)); width: 275px; transition: opacity .2s linear, transform .2s linear; }
 .sequence-radio .live-radio-card { position: relative; top: auto; left: auto; width: 100%; transform: none; }
 .sequence-radio .live-radio-card[role="button"] { cursor: pointer; transition: border-color .2s, box-shadow .2s, transform .2s; }
 .sequence-radio .live-radio-card[role="button"]:hover { border-color: var(--team); box-shadow: 0 18px 55px rgba(0,0,0,.45), 0 0 24px color-mix(in srgb, var(--team) 22%, transparent); transform: translateY(-3px); }
@@ -1211,6 +1211,8 @@
 .radio-metrics { position: relative; z-index: 1; display: flex; justify-content: space-between; gap: 8px; margin-top: 7px; color: #6e88bb; font: 7px 'DM Mono', monospace; letter-spacing: .04em; }
 .radio-metrics span { display: flex; flex-direction: column; gap: 3px; }
 .radio-metrics b { color: #c8d8f7; font-size: 8px; font-weight: 500; }
+.access-pitwall-button { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; min-height: 31px; margin-top: 10px; border: 1px solid #8fb7ff; color: #07101d; background: #8fb7ff; cursor: pointer; font: 700 8px 'DM Mono', monospace; letter-spacing: .1em; }
+.access-pitwall-button:hover { color: #fff; background: #4e7fd1; box-shadow: 0 0 18px rgba(143, 183, 255, .35); }
 @keyframes radioProgress { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
 .scroll-marker { position: absolute; z-index: 4; bottom: 35px; left: 50%; transform: translateX(-50%); color: #b5d0c7; font: 15px 'DM Mono', monospace; letter-spacing: .25em; text-shadow: 0 0 16px rgba(64, 212, 144, .22); }.scroll-marker span { display: block; margin-top: 10px; color: var(--team); text-align: center; font-size: 26px; line-height: 1; animation: downPulse 1.4s infinite; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--team) 35%, transparent)); }
 .wheel-hit.is-disabled { opacity: .42; filter: saturate(.35); }

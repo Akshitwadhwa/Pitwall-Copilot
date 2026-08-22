@@ -321,8 +321,6 @@ export async function handler(request, response) {
       circuit: race.session.circuit_short_name,
       country: race.session.country_name,
       year: race.session.year,
-      if (mood === 'ANGRY') return { reply: 'Copy. That sounds serious. State the car system, the corner, and whether it is getting worse.', display: 'REPORT ISSUE', action: 'State the system, corner, and severity.', source: 'mood-safe-response' }
-      if (mood === 'FRUSTRATED') return { reply: 'Copy. Keep it short: issue, corner, and severity.', display: 'ISSUE / CORNER', action: 'Report the issue, corner, and severity.', source: 'mood-safe-response' }
     })))
   }
 
